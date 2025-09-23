@@ -17,6 +17,7 @@ args_cli = parser.parse_args()
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
+import omni.ui as ui
 ### ------------
 # import omni.ui as ui
 
@@ -36,6 +37,145 @@ import isaaclab.sim as sim_utils
 import os
 from keyboard_interface import keyboard_custom
 dt = 0.1
+
+from scripts.custom_scripts.robot_env import RobotEnv, RobotEnvCfg
+
+class ControllerWindow:
+    """A UI window for controlling robot parameters with sliders."""
+    
+    def __init__(self, env:gym.Env=None):
+        """
+        Initialize the controller window.
+        
+        Args:
+            initial_kp (float): Initial Kp value
+            initial_kd (float): Initial Kd value
+        """
+        # Store parameters
+        # self.params = {"kp": initial_kp, "kd": initial_kd}
+        
+        # Create value models for the sliders
+        # self.kp_model = ui.SimpleFloatModel(initial_kp)
+        # self.kd_model = ui.SimpleFloatModel(initial_kd)
+        
+        # self.models = {"kp": self.kp_model, "kd": self.kd_model}
+        # # Create the UI window
+        # self.window = None
+        # self.kp_slider = None
+        # self.kd_slider = None
+        
+        ## name:- {model, value, min, max, callback_function, args}
+        self.slider_params = {}
+        # self.env = env
+
+
+        # self._create_window()
+        # self._setup_callbacks()
+    
+    def create_window(self):
+        """Create the UI window and its contents."""
+        self.window = ui.Window("Controller Panel", width=300, height=200, 
+                               flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
+        
+        with self.window.frame:
+            with ui.VStack(spacing=10):
+                # ui.Label("Kp Parameter (Proportional Gain)")
+                # self.kp_slider = ui.FloatSlider(model=self.kp_model, min=0.0, max=500.0)
+                
+                # ui.Spacer(height=10)
+                
+                # ui.Label("Kd Parameter (Derivative Gain)")
+                # self.kd_slider = ui.FloatSlider(model=self.kd_model, min=0.0, max=50.0)
+                # for param_name, model in self.models.items():
+                #     ui.Label(f"{param_name}")
+                #     ui.FloatSlider(model=model, min=0.0, max=500.0)
+                #     ui.Spacer(height=10)
+
+                for param_name in self.slider_params.keys():
+                    ui.Label(f"{param_name}")
+                    ui.FloatSlider(
+                        model=self.slider_params[param_name]['model'], 
+                        min=self.slider_params[param_name]['min'], 
+                        max=self.slider_params[param_name]['max']
+                    )
+                    ui.Spacer(height=10)
+        
+        # Ensure window is visible
+        self.window.visible = True
+        print("UI Controller Panel created and should be visible")
+        # print(f"Initial values: kp={self.kp_model.as_float}, kd={self.kd_model.as_float}")
+    
+    def _setup_callbacks(self):
+        """Setup callbacks for model changes."""
+        # self.models['kp'].add_value_changed_fn(self._on_kp_changed)
+        # self.models['kd'].add_value_changed_fn(self._on_kd_changed)
+        pass;
+
+    def get_params(self, param_name):
+        """Get current parameters as dictionary."""
+        return self.slider_params[param_name]["value"]
+    
+    def set_visible(self, visible):
+        """Show or hide the window."""
+        if self.window:
+            self.window.visible = visible
+    
+    def destroy(self):
+        """Clean up the window."""
+        if self.window:
+            self.window.destroy()
+            self.window = None
+
+    def create_new_slider_widget(self, param_name, value, min_val=0, max_val=1000, callback_fn=None, **kwargs):
+
+        if param_name in self.slider_params.keys():
+            print(f"Model {param_name} already exists.")
+            return
+        self.slider_params[param_name] = {
+            'model': ui.SimpleFloatModel(value),
+            'value': value,
+            'min': min_val,
+            'max': max_val,
+        }
+        callback_fn_model = lambda m: callback_fn(self.slider_params[param_name], m, **kwargs)
+        self.slider_params[param_name]['model'].add_value_changed_fn(callback_fn_model)
+
+
+## callback_fn 
+def callback_kp(params, model, env:gym.Env, group_name:str):
+    '''
+    both approaches will work isaac lab made a wrapper for setting stiffness to the physx sim 
+    the other approach is to directly set the stiffness to the physx sim
+    '''
+
+    new_kp_value = model.as_float
+    joint_names = env.unwrapped._robot.actuators[group_name].joint_names
+    joint_indices = env.unwrapped._robot.actuators[group_name].joint_indices
+    # env.unwrapped._robot.actuators[group_name].stiffness[:,:] = new_kp_value
+    env.unwrapped._robot.data.joint_stiffness[:,joint_indices] = new_kp_value
+    stiffness_tensor = env.unwrapped._robot.data.joint_stiffness.clone()
+
+    ## approach 1: using the wrapper function
+    # env.unwrapped._robot.write_joint_stiffness_to_sim(stiffness_tensor, joint_indices)
+    
+    ## approach 2: directly setting to physx sim
+    env_ids = torch.arange(env.unwrapped.scene.num_envs, device="cpu")
+    env.unwrapped._robot.root_physx_view.set_dof_stiffnesses(stiffness_tensor.cpu(), env_ids)
+    params["value"] = model.as_float
+
+def callback_kd(params, model, env:gym.Env, group_name):
+    new_kd_value = model.as_float
+    joint_indices = env.unwrapped._robot.actuators[group_name].joint_indices
+    # env.unwrapped._robot.actuators[group_name].damping[:,:] = new_kd_value
+    env.unwrapped._robot.data.joint_damping[:,joint_indices] = new_kd_value
+    damping_tensor = env.unwrapped._robot.data.joint_damping.clone()
+    # env.unwrapped._robot.write_joint_stiffness_to_sim(damping_tensor, joint_indices)
+
+    env_ids = torch.arange(env.unwrapped.scene.num_envs, device="cpu")
+    env.unwrapped._robot.root_physx_view.set_dof_dampings(damping_tensor.cpu(), env_ids)
+    params["value"] = model.as_float
+
+
 
 
 def make_env(video_folder:str | None =None, output_type: str = "numpy"):
@@ -70,6 +210,49 @@ def main():
     keyboard.reset()
     print(f"\n\n{keyboard}\n\n")
 
+
+    controller_window = ControllerWindow()
+    
+    controller_window.create_new_slider_widget(
+        param_name="kp_arm1",
+        value = 800.0,
+        min_val=0,
+        max_val=1000000,
+        callback_fn=callback_kp,
+        env=env,
+        group_name="kinova_shoulder"
+    )
+    controller_window.create_new_slider_widget(
+        param_name="kd_arm1",
+        value = 160.0,
+        min_val=0,
+        max_val=1000000,
+        callback_fn=callback_kd,
+        env=env,
+        group_name="kinova_shoulder"
+    )
+
+    controller_window.create_new_slider_widget(
+        param_name="kp_arm2",
+        value = 800.0,
+        min_val=0,
+        max_val=1000000,
+        callback_fn=callback_kp,
+        env=env,
+        group_name="kinova_forearm"
+    )
+    controller_window.create_new_slider_widget(
+        param_name="kd_arm2",
+        value = 160.0,  
+        min_val=0,
+        max_val=1000000,
+        callback_fn=callback_kd,
+        env=env,
+        group_name="kinova_forearm"
+    )
+
+    controller_window.create_window()
+    
     num_envs = env.unwrapped.scene.num_envs
     while simulation_app.is_running():
 

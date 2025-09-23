@@ -1,3 +1,4 @@
+from datetime import datetime
 import isaaclab.sim as sim_utils
 from isaaclab.utils import configclass
 from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
@@ -23,15 +24,15 @@ import isaacsim.core.utils.torch as torch_utils
 # import custom_scripts.testing_controllers.controller as controller
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
-
+import pandas as pd
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "usd")
 
 @configclass
 class RobotEnvCfg(DirectRLEnvCfg):
 
-    episode_length_s = 20 ## 20sec = (rl_steps)*decimation*step_dt ## naming shouldnt be changed
-    decimation = 20  ## decimation 20 means after every 20 sim steps one rl steps
+    episode_length_s = 60 ## 20sec = (rl_steps)*decimation*step_dt ## naming shouldnt be changed
+    decimation = 1#20  ## decimation 20 means after every 20 sim steps one rl steps
     action_space = 7 ## 6- pose 1- gripper
     observation_space = 3 ## randomly set
     state_space = 3 ## randomly set
@@ -111,14 +112,14 @@ class RobotEnvCfg(DirectRLEnvCfg):
         actuators={
             "kinova_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[1-4]"],
-                effort_limit=80.0,
+                effort_limit=800.0,
                 velocity_limit=2.0,
                 stiffness=800.0,
                 damping=160.0,
             ),
             "kinova_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[5-7]"],
-                effort_limit=10.0,
+                effort_limit=100.0,
                 velocity_limit=2.5,
                 stiffness=800.0,
                 damping=160.0,
@@ -207,13 +208,16 @@ class RobotEnv(DirectRLEnv):
         self.gripper_joint_ids = self._robot.find_joints(self.gripper_joint_names)[0]
         self.gripper_open_val = torch.tensor([0.1], device=self.device)
         self.gripper_close_val = torch.tensor([0.8], device=self.device)
-        self.gripper_multiplier = torch.tensor([1, 1.0, 1.0, 1, -0.8, -0.8], device=self.device)
+        self.gripper_multiplier = torch.tensor([[1, 1.0, 1.0, 1, -0.8, -0.8]], device=self.device)
 
 
         ## friction
         ## intertia tensors
         ## intiial tensors
         ## gripper
+
+        ## logging data after every physics step
+        
 
     def _setup_scene(self):
         super()._setup_scene()
@@ -252,15 +256,17 @@ class RobotEnv(DirectRLEnv):
         self._compute_intermediate_values(self.physics_dt)
         ee_pos_b, ee_quat_b = self._compute_frame_pose()
         delta_ee_pos = self.actions[:,:6]        
-        
+        self.gripper_action()
         self.diff_ik_controller.set_command(delta_ee_pos, ee_pos_b, ee_quat_b)
         
     def _apply_action(self):
 
         self._compute_intermediate_values(self.physics_dt)
+        ee_pos_b, ee_quat_b = self._compute_frame_pose()
         jacobian_b = self._compute_frame_jacobian()
-        target_joint_pos = self.diff_ik_controller.compute(self.current_ef_pos, self.current_ef_quat, jacobian_b, self.joint_pos)
-        self._robot.set_joint_position_target()
+        target_joint_pos = self.diff_ik_controller.compute(ee_pos_b, ee_quat_b, jacobian_b, self.joint_pos[:, self.arm_joint_ids])
+        self._robot.set_joint_position_target(target_joint_pos, self.arm_joint_ids)
+
 
     def _get_rewards(self):
         rewards = torch.zeros(self.num_envs, device = self.device)
@@ -330,13 +336,82 @@ class RobotEnv(DirectRLEnv):
         
         return jacobian 
 
-    def gripper_action(self, env_ids):
+    def gripper_action(self, env_ids=None):
 
-        gripper_command = self.actions[:, 6]
-        gripper_pos = torch.where(gripper_command > 0, self.gripper_close_val, self.gripper_open_val)*self.gripper_multiplier
+        gripper_command = self.actions[:, -1].clone()
+        gripper_command = gripper_command.reshape(-1,1)
+        gripper_pos = torch.where(gripper_command > 0, self.gripper_close_val, self.gripper_open_val)
+
+        # print(gripper_pos, gripper_pos.shape)
+        # print(self.gripper_multiplier, self.gripper_multiplier.shape)
+
+        gripper_pos = gripper_pos*self.gripper_multiplier
+        # print("gripper joints \n", gripper_pos, gripper_pos.shape)
         self._robot.set_joint_position_target(gripper_pos, self.gripper_joint_ids, env_ids=env_ids)
-        
+    
+class RobotEnvLogging(RobotEnv):
+    def __init__(self, cfg:RobotEnvCfg, render_mode: str | None = None, log_file=None, **kwargs):
+        super().__init__(cfg, render_mode, **kwargs)
 
+        # Initialize logger
+        if log_file is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file = f"custom_scripts/logs/csv_files/robot_physics_data_{timestamp}.csv"
+        
+        self.log_file = log_file
+        self.log_data = []
+        self.physics_step_count = 0
+
+    # def _pre_physics_step(self, actions):
+    #     super()._pre_physics_step(actions)
+        
+    #     return 
+
+    def _apply_action(self):
+        super()._apply_action()
+        self._log_physics_step()
+
+    def _log_physics_step(self):
+        action_np = self.actions.clone().cpu().numpy()
+        env_idx = 0
+        log_entry = {
+            'physics_step': self.physics_step_count,
+            'env_id': env_idx,
+            'ee_pos_x': self.current_ef_pos[env_idx, 0].item(),
+            'ee_pos_y': self.current_ef_pos[env_idx, 1].item(),
+            'ee_pos_z': self.current_ef_pos[env_idx, 2].item(),
+            'ee_quat_w': self.current_ef_quat[env_idx, 0].item(),
+            'ee_quat_x': self.current_ef_quat[env_idx, 1].item(),
+            'ee_quat_y': self.current_ef_quat[env_idx, 2].item(),
+            'ee_quat_z': self.current_ef_quat[env_idx, 3].item(),
+        }
+        
+        # Add actions
+        for i in range(7):
+            log_entry[f'action_{i}'] = action_np[env_idx, i] if i < action_np.shape[1] else 0.0
+        
+        # Add joint positions
+        for i, joint_idx in enumerate(self.arm_joint_ids):
+            log_entry[f'arm_joint_{i}'] = self.joint_pos[env_idx, joint_idx].item()
+
+        self.log_data.append(log_entry)
+
+        self.physics_step_count += 1
+        
+        # Save periodically
+        if self.physics_step_count % 1000 == 0:
+            self._save_to_csv()
+    
+    def _save_to_csv(self):
+        if self.log_data:
+            df = pd.DataFrame(self.log_data)
+            df.to_csv(self.log_file, index=False)
+            print(f"Saved {len(self.log_data)} physics step entries to {self.log_file}")
+    
+    def close(self):
+        """Override close to save final data"""
+        self._save_to_csv()
+        super().close() if hasattr(super(), 'close') else None
 
 ## rewards, observations, dones, actions, reset
 
