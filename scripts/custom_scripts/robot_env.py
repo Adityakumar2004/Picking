@@ -32,7 +32,7 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "usd")
 class RobotEnvCfg(DirectRLEnvCfg):
 
     episode_length_s = 60 ## 20sec = (rl_steps)*decimation*step_dt ## naming shouldnt be changed
-    decimation = 1#20  ## decimation 20 means after every 20 sim steps one rl steps
+    decimation = 20#20  ## decimation 20 means after every 20 sim steps one rl steps
     action_space = 7 ## 6- pose 1- gripper
     observation_space = 3 ## randomly set
     state_space = 3 ## randomly set
@@ -119,7 +119,7 @@ class RobotEnvCfg(DirectRLEnvCfg):
             ),
             "kinova_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[5-7]"],
-                effort_limit=100.0,
+                effort_limit=800.0,
                 velocity_limit=2.5,
                 stiffness=800.0,
                 damping=160.0,
@@ -356,8 +356,15 @@ class RobotEnvLogging(RobotEnv):
         # Initialize logger
         if log_file is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_file = f"custom_scripts/logs/csv_files/robot_physics_data_{timestamp}.csv"
+            log_dir = "scripts/custom_scripts/logs/csv_files"
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = f"{log_dir}/robot_physics_data_{timestamp}.csv"
         
+        ## deleting the logfile if it exists
+        if os.path.exists(log_file):
+            os.remove(log_file)
+
+
         self.log_file = log_file
         self.log_data = []
         self.physics_step_count = 0
@@ -399,7 +406,7 @@ class RobotEnvLogging(RobotEnv):
         self.physics_step_count += 1
         
         # Save periodically
-        if self.physics_step_count % 1000 == 0:
+        if self.physics_step_count % 100 == 0:
             self._save_to_csv()
     
     def _save_to_csv(self):

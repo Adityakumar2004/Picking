@@ -51,26 +51,19 @@ class ControllerWindow:
             initial_kp (float): Initial Kp value
             initial_kd (float): Initial Kd value
         """
-        # Store parameters
-        # self.params = {"kp": initial_kp, "kd": initial_kd}
-        
-        # Create value models for the sliders
-        # self.kp_model = ui.SimpleFloatModel(initial_kp)
-        # self.kd_model = ui.SimpleFloatModel(initial_kd)
-        
-        # self.models = {"kp": self.kp_model, "kd": self.kd_model}
-        # # Create the UI window
-        # self.window = None
-        # self.kp_slider = None
-        # self.kd_slider = None
-        
-        ## name:- {model, value, min, max, callback_function, args}
+
         self.slider_params = {}
+        self.env = env
         # self.env = env
+    
+    # Button to set the filename
+    def on_set_filename(self):
+        filename = self.filename_field.model.as_string
+        print(f"Logging to file: {filename}")
+        # Your logging code here
+        # start_logging(filename)
 
-
-        # self._create_window()
-        # self._setup_callbacks()
+    
     
     def create_window(self):
         """Create the UI window and its contents."""
@@ -79,18 +72,6 @@ class ControllerWindow:
         
         with self.window.frame:
             with ui.VStack(spacing=10):
-                # ui.Label("Kp Parameter (Proportional Gain)")
-                # self.kp_slider = ui.FloatSlider(model=self.kp_model, min=0.0, max=500.0)
-                
-                # ui.Spacer(height=10)
-                
-                # ui.Label("Kd Parameter (Derivative Gain)")
-                # self.kd_slider = ui.FloatSlider(model=self.kd_model, min=0.0, max=50.0)
-                # for param_name, model in self.models.items():
-                #     ui.Label(f"{param_name}")
-                #     ui.FloatSlider(model=model, min=0.0, max=500.0)
-                #     ui.Spacer(height=10)
-
                 for param_name in self.slider_params.keys():
                     ui.Label(f"{param_name}")
                     ui.FloatSlider(
@@ -99,12 +80,44 @@ class ControllerWindow:
                         max=self.slider_params[param_name]['max']
                     )
                     ui.Spacer(height=10)
-        
+                
+        self.reset_window = ui.Window("reset_window", width=100, height=50, 
+                               flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
+
+        with self.reset_window.frame:
+            with ui.VStack(spacing=10):
+                ui.Label("Reset Parameters")
+                ui.Button("Reset", clicked_fn=self._on_reset_clicked)
+
+                ui.Label("log file name")
+                self.filename_field = ui.StringField(
+                    model=ui.SimpleStringModel("test_log"),
+                )
+
+                ui.Button("Set Filename", clicked_fn=self.on_set_filename)
+
+
+
+
+
         # Ensure window is visible
         self.window.visible = True
         print("UI Controller Panel created and should be visible")
         # print(f"Initial values: kp={self.kp_model.as_float}, kd={self.kd_model.as_float}")
-    
+
+    def _on_reset_clicked(self):
+        print("env reset ")
+        # self.env.reset()
+        env_ids = torch.arange(self.env.unwrapped.scene.num_envs, device=self.env.unwrapped.device)
+        joint_pos = self.env.unwrapped._robot.data.default_joint_pos[env_ids].clone()
+        joint_vel = torch.zeros_like(joint_pos)
+        self.env.unwrapped._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        self.env.unwrapped._robot.set_joint_position_target(joint_pos, env_ids = env_ids)
+        self.env.unwrapped._robot.set_joint_velocity_target(joint_vel, env_ids = env_ids)
+
+        # self.env.unwrapped.step_sim_no_action()
+        
+
     def _setup_callbacks(self):
         """Setup callbacks for model changes."""
         # self.models['kp'].add_value_changed_fn(self._on_kp_changed)
@@ -211,7 +224,7 @@ def main():
     print(f"\n\n{keyboard}\n\n")
 
 
-    controller_window = ControllerWindow()
+    controller_window = ControllerWindow(env)
     
     controller_window.create_new_slider_widget(
         param_name="kp_arm1",
@@ -254,6 +267,7 @@ def main():
     controller_window.create_window()
     
     num_envs = env.unwrapped.scene.num_envs
+    
     while simulation_app.is_running():
 
         keyboard_output = keyboard.advance()
