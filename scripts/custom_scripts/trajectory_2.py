@@ -39,6 +39,20 @@ from keyboard_interface import keyboard_custom
 dt = 0.1
 
 from scripts.custom_scripts.robot_env import RobotEnv, RobotEnvCfg
+from isaaclab.sim.schemas import modify_rigid_body_properties, RigidBodyPropertiesCfg
+from isaaclab.assets import ArticulationCfg, Articulation, AssetBaseCfg, AssetBase, RigidObjectCfg, RigidObject
+
+
+def change_gravity(bool, env_ids):
+    cfg_rigid_props=sim_utils.RigidBodyPropertiesCfg(
+        disable_gravity=bool,
+        max_depenetration_velocity=5.0,
+        )
+
+    for i in env_ids:
+        prim_path = f"/World/envs/env_{i}/Robot"
+        
+        modify_rigid_body_properties(prim_path, cfg_rigid_props)
 
 class ControllerWindow:
     """A UI window for controlling robot parameters with sliders."""
@@ -55,16 +69,7 @@ class ControllerWindow:
         self.slider_params = {}
         self.env = env
         # self.env = env
-    
-    # Button to set the filename
-    def on_set_filename(self):
-        filename = self.filename_field.model.as_string
-        print(f"Logging to file: {filename}")
-        # Your logging code here
-        # start_logging(filename)
-
-    
-    
+        
     def create_window(self):
         """Create the UI window and its contents."""
         self.window = ui.Window("Controller Panel", width=300, height=200, 
@@ -74,12 +79,15 @@ class ControllerWindow:
             with ui.VStack(spacing=10):
                 for param_name in self.slider_params.keys():
                     ui.Label(f"{param_name}")
+                    ui.FloatField(model = self.slider_params[param_name]['model'])
                     ui.FloatSlider(
                         model=self.slider_params[param_name]['model'], 
                         min=self.slider_params[param_name]['min'], 
                         max=self.slider_params[param_name]['max']
                     )
                     ui.Spacer(height=10)
+                    
+                    
                 
         self.reset_window = ui.Window("reset_window", width=100, height=50, 
                                flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
@@ -97,26 +105,75 @@ class ControllerWindow:
                 ui.Button("Set Filename", clicked_fn=self.on_set_filename)
 
 
+                # ui.Button("Start Trajectory", clicked_fn=self._start_trajectory)
+                ui.Label("Start Trajectory")
+                self._trajectory_bool_model = ui.SimpleBoolModel(False)
+                self._trajectory_bool_model.add_value_changed_fn(self.on_trajectory_bool_changed)
+                ui.CheckBox(model=self._trajectory_bool_model, text="start trajectory")                
 
+                # Method 1: Simple boolean model
+                ui.Label("Logging State")
+                bool_model = ui.SimpleBoolModel(False)
+                bool_model.add_value_changed_fn(self.on_recording_bool_changed)
+                ui.CheckBox(model=bool_model, text="logging")
 
-
+                ui.Label("enable_gravity")
+                bool_model_gravity = ui.SimpleBoolModel(True)
+                bool_model_gravity.add_value_changed_fn(self.on_gravity_changed)
+                ui.CheckBox(model=bool_model_gravity, text="enable_gravity")
+                
         # Ensure window is visible
         self.window.visible = True
         print("UI Controller Panel created and should be visible")
         # print(f"Initial values: kp={self.kp_model.as_float}, kd={self.kd_model.as_float}")
 
+    # Button to set the filename
+    def on_set_filename(self):
+        filename = self.filename_field.model.as_string
+        print(f"Logging to file: {filename}")
+        global log_filename
+        log_filename = filename
+        # Your logging code here
+        # start_logging(filename)
+
+    def on_gravity_changed(self, model):
+        print("gravity changed ", model.as_bool)
+        change_gravity(not model.as_bool, [0,1])
+
+
+    def on_recording_bool_changed(self, model):
+        if model.as_bool:
+            self.on_set_filename()
+            # self._start_trajectory()
+            self._trajectory_bool_model.set_value(True)
+        if not model.as_bool:
+            self._trajectory_bool_model.set_value(False)
+
+        global recording_state
+        recording_state = model.as_bool
+        self.env.unwrapped.recording_state = recording_state
+        
+
     def _on_reset_clicked(self):
         print("env reset ")
         # self.env.reset()
-        env_ids = torch.arange(self.env.unwrapped.scene.num_envs, device=self.env.unwrapped.device)
-        joint_pos = self.env.unwrapped._robot.data.default_joint_pos[env_ids].clone()
-        joint_vel = torch.zeros_like(joint_pos)
-        self.env.unwrapped._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-        self.env.unwrapped._robot.set_joint_position_target(joint_pos, env_ids = env_ids)
-        self.env.unwrapped._robot.set_joint_velocity_target(joint_vel, env_ids = env_ids)
-
         # self.env.unwrapped.step_sim_no_action()
+        global trajectory_state
+        trajectory_state = False
+
+        global rl_step
+        rl_step = 0
+
+        global reset_env
+        reset_env = True
         
+    def on_trajectory_bool_changed(self, model):
+        global trajectory_state
+        trajectory_state = model.as_bool
+
+        global rl_step
+        rl_step = 0
+           
 
     def _setup_callbacks(self):
         """Setup callbacks for model changes."""
@@ -154,6 +211,9 @@ class ControllerWindow:
         self.slider_params[param_name]['model'].add_value_changed_fn(callback_fn_model)
 
 
+
+        
+
 ## callback_fn 
 def callback_kp(params, model, env:gym.Env, group_name:str):
     '''
@@ -189,17 +249,38 @@ def callback_kd(params, model, env:gym.Env, group_name):
     params["value"] = model.as_float
 
 
+def generate_actions(env:RobotEnv, rl_step, env_ids = None):
+    '''
+    a trajectory generated with action commands which are delta poses
+    
+    '''
 
 
-def make_env(video_folder:str | None =None, output_type: str = "numpy"):
+    
+    if env_ids is None:
+        env_ids = np.arange(env.unwrapped.scene.num_envs)
+
+    ## making tha actions of other envs not listed in envids zero
+    actions = np.zeros((env.unwrapped.scene.num_envs, 7), dtype=np.float32)
+
+
+
+
+    if rl_step >= 5 and rl_step <= 15:
+        actions[env_ids, 0] = 0.05
+
+    return actions
+
+def make_env(log_file:str | None, video_folder:str | None =None, output_type: str = "numpy") -> RobotEnv:
 
     id_name = "peg_insert-v0-uw"
     gym.register(
         id=id_name,
-        entry_point="scripts.custom_scripts.robot_env:RobotEnv",
+        entry_point="scripts.custom_scripts.robot_env:RobotEnvLogging",
         disable_env_checker=True,
         kwargs={
             "env_cfg_entry_point":"scripts.custom_scripts.robot_env:RobotEnvCfg",
+            "log_file":log_file
         },
     )
 
@@ -215,14 +296,29 @@ def make_env(video_folder:str | None =None, output_type: str = "numpy"):
     return env
 
 
+
 def main():
-    env = make_env(video_folder=None, output_type="numpy")
+    env = make_env(log_file= None, video_folder=None, output_type="numpy")
     env.reset()
 
     keyboard = keyboard_custom(pos_sensitivity=1.0*args_cli.sensitivity, rot_sensitivity=1.0*args_cli.sensitivity)
     keyboard.reset()
     print(f"\n\n{keyboard}\n\n")
 
+    log_dir = "scripts/custom_scripts/logs/csv_files"
+    os.makedirs(log_dir, exist_ok=True)
+
+    global trajectory_state
+    trajectory_state = False
+
+    global recording_state
+    recording_state = False
+
+    global log_filename
+    # log_filename = "test_log"
+
+    global reset_env
+    reset_env = False
 
     controller_window = ControllerWindow(env)
     
@@ -235,6 +331,7 @@ def main():
         env=env,
         group_name="kinova_shoulder"
     )
+
     controller_window.create_new_slider_widget(
         param_name="kd_arm1",
         value = 160.0,
@@ -265,33 +362,66 @@ def main():
     )
 
     controller_window.create_window()
-    
+
     num_envs = env.unwrapped.scene.num_envs
 
+    global rl_step
+    rl_step = 0
     while simulation_app.is_running():
 
         keyboard_output = keyboard.advance()
 
         pose_action = keyboard_output["pose_command"]
         close_gripper = keyboard_output["gripper_command"]
-        recording_state = keyboard_output["recording_state"]
+        # recording_state = keyboard_output["recording_state"]
+
 
         if keyboard_output["reset_state"]:
             print("\n resetting the env \n ", "---"*10, "\n")
             env.reset()
         
-        pose_action[:3] = pose_action[:3] * 0.03 
-        pose_action[3:6] = pose_action[3:6] * 0.06
-        
+        if trajectory_state:
+            print("trajectory state on ")
+            # global rl_step
+            actions = generate_actions(env, rl_step)
+            actions = torch.from_numpy(actions).float()
+            rl_step += 1
+            # if rl_step > 15:
+            #     trajectory_state = False
+            #     rl_step = 0
+            #     print("trajectory state off ")
 
-        if close_gripper:
-            action = np.concatenate((pose_action, np.array([-1.0])), axis=0)
         else:
-            action = np.concatenate((pose_action, np.array([1.0])), axis=0)
+            rl_Step = 0
+            pose_action[:3] = pose_action[:3] * 0.03 
+            pose_action[3:6] = pose_action[3:6] * 0.06
+            
 
-        actions = torch.from_numpy(action).float().repeat(env.unwrapped.scene.num_envs, 1)
+            if close_gripper:
+                action = np.concatenate((pose_action, np.array([-1.0])), axis=0)
+            else:
+                action = np.concatenate((pose_action, np.array([1.0])), axis=0)
+
+            actions = torch.from_numpy(action).float().repeat(env.unwrapped.scene.num_envs, 1)
+        
+        if recording_state:
+            env.unwrapped.recording_state = True
+            env.unwrapped.log_file = os.path.join(log_dir, f"{log_filename}.csv")
+            print(f"Recording state changed to {recording_state}")
+            # print(f"trajectory state changed to {trajectory_state}")
+
+        print("env recording state ", env.unwrapped.recording_state)
+
+        if reset_env:
+            env.reset()
+            reset_env = False
+
+
+
         env.step(actions)
         print("action \n ", actions[0])
+
+
 
     env.close()
 

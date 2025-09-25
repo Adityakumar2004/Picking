@@ -31,7 +31,7 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "usd")
 @configclass
 class RobotEnvCfg(DirectRLEnvCfg):
 
-    episode_length_s = 60 ## 20sec = (rl_steps)*decimation*step_dt ## naming shouldnt be changed
+    episode_length_s = 60*60*10 ## 20sec = (rl_steps)*decimation*step_dt ## naming shouldnt be changed
     decimation = 20#20  ## decimation 20 means after every 20 sim steps one rl steps
     action_space = 7 ## 6- pose 1- gripper
     observation_space = 3 ## randomly set
@@ -83,7 +83,7 @@ class RobotEnvCfg(DirectRLEnvCfg):
             usd_path=os.path.join(ASSETS_DIR, "Robots/Kinova/gen3n7.usd"),
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=True,
+                disable_gravity=False,
                 max_depenetration_velocity=5.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
@@ -112,14 +112,14 @@ class RobotEnvCfg(DirectRLEnvCfg):
         actuators={
             "kinova_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[1-4]"],
-                effort_limit=800.0,
+                effort_limit=5000.0,
                 velocity_limit=2.0,
                 stiffness=800.0,
                 damping=160.0,
             ),
             "kinova_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[5-7]"],
-                effort_limit=800.0,
+                effort_limit=5000.0,
                 velocity_limit=2.5,
                 stiffness=800.0,
                 damping=160.0,
@@ -369,6 +369,8 @@ class RobotEnvLogging(RobotEnv):
         self.log_data = []
         self.physics_step_count = 0
 
+        self.recording_state = False
+
     # def _pre_physics_step(self, actions):
     #     super()._pre_physics_step(actions)
         
@@ -376,7 +378,8 @@ class RobotEnvLogging(RobotEnv):
 
     def _apply_action(self):
         super()._apply_action()
-        self._log_physics_step()
+        if self.recording_state:
+            self._log_physics_step()
 
     def _log_physics_step(self):
         action_np = self.actions.clone().cpu().numpy()
@@ -407,9 +410,9 @@ class RobotEnvLogging(RobotEnv):
         
         # Save periodically
         if self.physics_step_count % 100 == 0:
-            self._save_to_csv()
+            self.save_to_csv()
     
-    def _save_to_csv(self):
+    def save_to_csv(self):
         if self.log_data:
             df = pd.DataFrame(self.log_data)
             df.to_csv(self.log_file, index=False)
@@ -417,8 +420,10 @@ class RobotEnvLogging(RobotEnv):
     
     def close(self):
         """Override close to save final data"""
-        self._save_to_csv()
+        self.save_to_csv()
         super().close() if hasattr(super(), 'close') else None
+
+
 
 ## rewards, observations, dones, actions, reset
 
