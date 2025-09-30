@@ -376,6 +376,13 @@ class RobotEnvLogging(RobotEnv):
         
     #     return 
 
+    def _reset_idx(self, env_ids):
+        super()._reset_idx(env_ids)
+        
+        self.log_data = []
+        self.physics_step_count = 0
+        
+
     def _apply_action(self):
         super()._apply_action()
         if self.recording_state:

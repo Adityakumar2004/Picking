@@ -103,4 +103,4 @@ while True:
             except Exception as e:
                 print(f"Error loading {file}: {e}")
 
-    time.sleep(20)  # poll every 2s for new files
+    # time.sleep(2)  # poll every 2s for new files

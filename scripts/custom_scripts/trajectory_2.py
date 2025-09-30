@@ -420,6 +420,7 @@ def main():
 
         env.step(actions)
         print("action \n ", actions[0])
+        print("rl_step: ", rl_step)
 
 
 
