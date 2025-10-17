@@ -4,6 +4,14 @@
 
 
 import argparse
+import sys
+import os
+
+# Add the Isaac Lab root directory to Python path for module imports
+ISAACLAB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if ISAACLAB_ROOT not in sys.path:
+    print(f"Adding Isaac Lab root to Python path: {ISAACLAB_ROOT}")
+    sys.path.insert(0, ISAACLAB_ROOT)
 
 from isaaclab.app import AppLauncher
 
@@ -73,7 +81,7 @@ def make_env(video_folder:str | None =None, output_type: str = "numpy"):
 def main():
     exp_name = "diff_ik_low_T_high_bounds"
     file_path_csv = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "csv_files", f"{exp_name}.csv")
-    video_folder = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "videos", f"{exp_name}_smoothened")
+    video_folder = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "videos", f"{exp_name}_smoothened_2")
     checkpoint_folder = os.path.join("scripts","peg_hole_2" ,"logs","ppo_factory", "checkpoints")
     checkpoint_path = os.path.join(checkpoint_folder, f"{exp_name}.pt")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

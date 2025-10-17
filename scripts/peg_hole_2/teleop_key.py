@@ -32,13 +32,23 @@ import numpy as np
 import gymnasium as gym
 from isaaclab_tasks.utils import parse_env_cfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 import isaaclab.sim as sim_utils
 # from utils_1 import env_wrapper, log_values
 import os
 from keyboard_interface import keyboard_custom
 dt = 0.1
 
-from scripts.custom_scripts.robot_env import RobotEnv, RobotEnvCfg
+import sys
+
+# Add the Isaac Lab root directory to Python path for module imports
+ISAACLAB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if ISAACLAB_ROOT not in sys.path:
+    print(f"Adding Isaac Lab root to Python path: {ISAACLAB_ROOT}")
+    sys.path.insert(0, ISAACLAB_ROOT)
+
+
+# from scripts.peg_hole_2.robot_env import RobotEnv, RobotEnvCfg
 
 # class ControllerWindow:
 #     """A UI window for controlling robot parameters with sliders."""
@@ -233,6 +243,78 @@ def make_env(video_folder:str | None =None, output_type: str = "numpy"):
     return env
 
 
+
+def visualize_markers(env_marker_visualizer:VisualizationMarkers, pose: Union[np.ndarray, torch.Tensor], quat = None):
+    '''
+    Args:
+    pose: tensor or numpy array of positions with dim --> (num_envs, num_spheres, 3) or (num_envs, 3) 
+    
+    '''
+    if isinstance(pose, torch.Tensor):
+        pose = pose.cpu().numpy()
+    elif isinstance(pose, np.ndarray):
+        pass
+    else :
+        assert False, "pose must be a torch.Tensor or np.ndarray"
+    
+    if quat is None:
+        identity_quat = np.array([1, 0, 0, 0])  # identity quat for sphere
+
+    if len(pose.shape) == 3:
+        (num_envs, num_spheres, _) = pose.shape
+    elif len(pose.shape) == 2:
+        (num_envs, _) = pose.shape
+        num_spheres = 1
+        pose = pose[:, None, :]  # Add extra dimension to make it (num_envs, 1, _)
+    else:
+        raise ValueError(f"pose must have 2 or 3 dimensions, got shape {pose.shape}")
+
+    if quat is not None:    
+        if len(quat.shape) == 3:
+            (num_envs, num_spheres, _) = quat.shape
+        elif len(quat.shape) == 2:
+            (num_envs, _) = quat.shape
+            num_spheres = 1
+            quat = quat[:, None, :]  # Add extra dimension to make it (num_envs, 1, _)
+        else:
+            raise ValueError(f"pose must have 2 or 3 dimensions, got shape {quat.shape}")
+
+    translations = np.empty((num_envs * num_spheres, 3), dtype=np.float32)
+    orientations = np.empty((num_envs * num_spheres, 4), dtype=np.float32)
+    marker_indices = np.empty((num_envs * num_spheres,), dtype=np.int32)
+
+    for env_id in range(num_envs):
+        for count in range(num_spheres):
+            translations[(num_spheres*env_id + count)] = pose[env_id, count, :3]
+            if quat is None:
+                orientations[(num_spheres*env_id + count)] = identity_quat
+            else:
+                orientations[(num_spheres*env_id + count)] = quat[env_id, count, :]
+            marker_indices[(num_spheres*env_id + count)] = count
+
+    env_marker_visualizer.visualize(
+        translations=translations,
+        orientations=orientations,
+        marker_indices=marker_indices
+    )
+
+def create_marker_frames(count=1, scale=(0.01,0.01,0.01)):
+    frame_markers = {}
+    for i in range(count):
+        frame_markers[f"frame_{i}"] = sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
+                scale=scale,
+            )
+    marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/FrameMarkers",
+        markers = frame_markers
+    )
+
+    marker_visualizer = VisualizationMarkers(marker_cfg)
+
+    return marker_visualizer
+
+
 def main():
     env = make_env(video_folder=None, output_type="numpy")
     env.reset()
@@ -286,6 +368,12 @@ def main():
     
     num_envs = env.unwrapped.scene.num_envs
 
+    ## visualizing markers
+    frame_fingtip_viz = create_marker_frames(count=1, scale=(0.04,0.04,0.04))
+    frame_bracelet_viz = create_marker_frames(count=1, scale=(0.04,0.04,0.04))
+    frame_eef_viz = create_marker_frames(count=1, scale=(0.04,0.04,0.04))
+
+    step = 0
     while simulation_app.is_running():
 
         keyboard_output = keyboard.advance()
@@ -310,8 +398,39 @@ def main():
         # actions = torch.from_numpy(action).float().repeat(env.unwrapped.scene.num_envs, 1)
         actions = torch.from_numpy(pose_action).float().repeat(env.unwrapped.scene.num_envs, 1)
 
-        env.step(actions)
-        print("action \n ", actions[0])
+        next_obs, reward, terminated, truncated, info_custom = env.step(actions)
+        fingertip_pos = env.unwrapped.fingertip_midpoint_pos.clone().cpu().numpy() + env.unwrapped.scene.env_origins.cpu().numpy()
+        fingertip_quat = env.unwrapped.fingertip_midpoint_quat.clone().cpu().numpy()
+
+        bracelet_pos = env.unwrapped.logging_dict["gen3_bracelet_link_pos"]
+        bracelet_quat = env.unwrapped.logging_dict["gen3_bracelet_link_quat"]
+
+        end_effector_pos = env.unwrapped.logging_dict["gen3_end_effector_link_pos"]
+        end_effector_quat = env.unwrapped.logging_dict["gen3_end_effector_link_quat"]
+
+        eef_tip_linvel = env.unwrapped.logging_dict["ee_linvel"]
+        eef_tip_angvel = env.unwrapped.logging_dict["ee_angvel"]
+
+        ## finding the distance between the bracelet and the fingertip
+        dist_vector_ee_bracelet = fingertip_pos - bracelet_pos
+        # print("distance vector from bracelet to fingertip wtr world (base): \n", dist_vector_ee_bracelet)
+
+        ## finding the distance from end effector_link to the fingertip
+        dist_vector_ee_fingertip = fingertip_pos - end_effector_pos
+        # print("distance vector from end_effector_link to fingertip wtr world (base): \n", dist_vector_ee_fingertip)
+
+        visualize_markers(frame_eef_viz, end_effector_pos, end_effector_quat)
+        visualize_markers(frame_bracelet_viz, bracelet_pos, bracelet_quat)
+        visualize_markers(frame_fingtip_viz, fingertip_pos, fingertip_quat)
+        print("---"*10, step, "---"*10)
+        print("action ", actions[0].numpy())
+        print("eef linvel ", eef_tip_linvel[0])
+        print("eef angvel ", eef_tip_angvel[0])
+        # print("fingertip pos \n", fingertip_pos[0])
+        # print("fingertip quat \n", fingertip_quat[0])
+        # print("obs policy \n", next_obs['policy'])
+        # print("action \n ", actions[0])
+        step+=1
 
     env.close()
 

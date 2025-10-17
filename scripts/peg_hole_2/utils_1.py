@@ -337,7 +337,6 @@ def TestingAgent(env, device, num_envs, agent, checkpoint_path, num_episodes = 2
 
     print(f"Loaded checkpoint from {checkpoint_path}")
 
-    
 
     with torch.no_grad():
         env.eval()  # set the env to evaluation mode
@@ -421,8 +420,6 @@ def TestingAgent(env, device, num_envs, agent, checkpoint_path, num_episodes = 2
                     env.record_cameras()
                 
                 
-
-    
     avg_reward = np.mean(rewards_list[:])
     avg_raw_reward = np.mean(raw_reward_list[:])
     # print(f"avg reward over {step_cntr / num_episodes} steps: {total_reward / num_episodes:.2f}")

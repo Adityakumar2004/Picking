@@ -55,10 +55,10 @@ class ObsRandCfg:
 class CtrlCfg:
     ema_factor = 0.2
 
-    pos_action_bounds = [0.06, 0.06, 0.06] #[0.05, 0.05, 0.05]
+    pos_action_bounds = [5.5, 5.5, 5.5] #[0.05, 0.05, 0.05]
     rot_action_bounds = [1.0, 1.0, 1.0]
 
-    pos_action_threshold = [0.02, 0.02, 0.02]
+    pos_action_threshold = [1.0, 1.0, 1.0]#[0.02, 0.02, 0.02]
     rot_action_threshold = [0.097, 0.097, 0.097]
 
     reset_joints = [1.5178e-03, -1.9651e-01, -1.4364e-03, -1.9761, -2.7717e-04, 1.7796, 7.8556e-01]
@@ -175,23 +175,27 @@ class FactoryEnvCfg(DirectRLEnvCfg):
         actuators={
             "kinova_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[1-4]"],
-                # effort_limit=5000.0,
-                effort_limit= 2,
-                velocity_limit=2.0,
-                stiffness=800.0,
-                damping=160.0,
-                # stiffness=0.0,
-                # damping=0.0,
+                # effort_limit= 2,
+                # velocity_limit=2.0,
+                # stiffness=800.0,
+                # damping=160.0,
+                effort_limit=5000.0,
+                velocity_limit=1000,
+                stiffness=1800.0,
+                damping=10.0,
             ),
             "kinova_forearm": ImplicitActuatorCfg(
-                joint_names_expr=["gen3_joint_[5-7]"],
+                joint_names_expr=["gen3_joint_[5-7]"], 
+                # effort_limit= 2,
+                # velocity_limit=2.5,
+                # stiffness=800.0, 
+                # damping=160.0,
                 # effort_limit=5000.0,
-                effort_limit= 2,
-                velocity_limit=2.5,
-                stiffness=800.0, 
-                damping=160.0,
-                # stiffness=0.0,
-                # damping=0.0,
+                effort_limit=5000.0,
+                velocity_limit=1000,
+                stiffness=1800.0,
+                damping=10.0,
+
             ),
             "kinova_gripper": ImplicitActuatorCfg(
                 joint_names_expr=['finger_joint', 'left_inner_knuckle_joint', 'right_inner_knuckle_joint', 'right_outer_knuckle_joint', 'left_inner_finger_joint', 'right_inner_finger_joint'],

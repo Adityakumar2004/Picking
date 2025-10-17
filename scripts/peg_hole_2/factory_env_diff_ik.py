@@ -156,6 +156,7 @@ class FactoryEnv(DirectRLEnv):
         # self.right_finger_body_idx = self._robot.body_names.index("panda_rightfinger")
         # self.fingertip_body_idx = self._robot.body_names.index("panda_fingertip_centered")
         self.fingertip_body_idx = self._robot.body_names.index("gripper_end_effector_link")
+        # self.fingertip_body_idx = self._robot.body_names.index("gen3_end_effector_link")
 
         # Tensors for finite-differencing.
         self.last_update_timestamp = 0.0  # Note: This is for finite differencing body velocities.
@@ -190,6 +191,9 @@ class FactoryEnv(DirectRLEnv):
 
         self.ep_succeeded = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
         self.ep_success_times = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
+
+        ## logging dict
+        self.logging_dict = {}
 
     def _get_keypoint_offsets(self, num_keypoints):
         """Get uniformly-spaced keypoints along a line of unit length, centered at 0."""
@@ -329,6 +333,29 @@ class FactoryEnv(DirectRLEnv):
 
         self.keypoint_dist = torch.norm(self.keypoints_held - self.keypoints_fixed, p=2, dim=-1).mean(-1)
         self.last_update_timestamp = self._robot._data._sim_timestamp
+
+        ## logging
+        self.logging_dict["fingertip_pos"] = self.fingertip_midpoint_pos.clone().cpu().numpy()
+        self.logging_dict["fingertip_quat"] = self.fingertip_midpoint_quat.clone().cpu().numpy()
+
+        ## finding the pose for gen3_bracelet_link
+        brace_link_idx = self._robot.body_names.index("gen3_bracelet_link")
+        # print("brace_link_idx", brace_link_idx)
+        self.logging_dict["gen3_bracelet_link_pos"] = self._robot.data.body_pos_w[:, brace_link_idx].clone().cpu().numpy()
+        self.logging_dict["gen3_bracelet_link_quat"] = self._robot.data.body_quat_w[:, brace_link_idx].clone().cpu().numpy()
+        ## finding the pose for gen3_end_effector_link
+        end_effector_idx = self._robot.body_names.index("gen3_end_effector_link")
+        self.logging_dict["gen3_end_effector_link_pos"] = self._robot.data.body_pos_w[:, end_effector_idx].clone().cpu().numpy()
+        self.logging_dict["gen3_end_effector_link_quat"] = self._robot.data.body_quat_w[:, end_effector_idx].clone().cpu().numpy()
+        ## logging the ee linvel and angvel
+        self.logging_dict["ee_linvel"] = self.ee_linvel_fd.clone().cpu().numpy()
+        self.logging_dict["ee_angvel"] = self.ee_angvel_fd.clone().cpu().numpy()
+        print("======================== intermediate values computed ========================")
+        print("ee linvel ", self.ee_linvel_fd[0].cpu().numpy())
+        print("ee angvel ", self.ee_angvel_fd[0].cpu().numpy())
+        ## logging the joint pos and vel
+        self.logging_dict["joint_pos"] = self.joint_pos[:, 0:7].clone().cpu().numpy()
+        self.logging_dict["joint_vel"] = self.joint_vel[:, 0:7].clone().cpu().numpy()
 
     def _get_observations(self):
         """Get actor/critic inputs using asymmetric critic."""
@@ -1274,3 +1301,4 @@ class FactoryEnv(DirectRLEnv):
         # dof_torque[:, 0:7] = fc.apply_dof_gains(kp = 100, target_joint_pos=target_joint_pos, curr_joint_pos=curr_joint_pos, num_envs=num_envs, device=device)
         # print("i am here")
         return target_joint_pos
+
