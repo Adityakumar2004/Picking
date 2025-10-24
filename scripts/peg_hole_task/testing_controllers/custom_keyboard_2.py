@@ -90,12 +90,12 @@ class keyboard_custom(DeviceBase):
         msg += f"\tKeyboard name: {self._input.get_keyboard_name(self._keyboard)}\n"
         msg += "\t----------------------------------------------\n"
         msg += "\tToggle gripper (open/close): K\n"
-        msg += "\tMove arm along x-axis: W/S\n"
-        msg += "\tMove arm along y-axis: A/D\n"
+        msg += "\tMove arm along x-axis: A/D\n"
+        msg += "\tMove arm along y-axis: W/S\n"
         msg += "\tMove arm along z-axis: E/F\n"
-        msg += "\tRotate arm along x-axis: J/L\n"
-        msg += "\tRotate arm along y-axis: I/K\n"
-        msg += "\tRotate arm along z-axis: U/H"
+        msg += "\tRotate arm along x-axis: Z/X\n"
+        msg += "\tRotate arm along y-axis: T/G\n"
+        msg += "\tRotate arm along z-axis: C/V"
         msg += "\nstart recording with R, stop with F\n"
         return msg
 
@@ -123,7 +123,7 @@ class keyboard_custom(DeviceBase):
         """
         self._additional_callbacks[key] = func
 
-    def advance(self) -> dict:
+    def advance(self) -> tuple[np.ndarray, bool]:
         """Provides the result from keyboard event state.
 
         Returns:
@@ -154,32 +154,26 @@ class keyboard_custom(DeviceBase):
         # apply the command when pressed
         # self.reset_state = False
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            # print(event.input.name, event.type)
-            if event.input.name == "R":
+            if event.input.name == "L":
                 self.reset()
                 self.reset_state = True
-
-            elif event.input.name == "LEFT_BRACKET":
-                self._close_gripper = True
-            elif event.input.name == "RIGHT_BRACKET":
-                print("i am here ")
-                self._close_gripper = False
-
+            if event.input.name == "O":
+                self._close_gripper = not self._close_gripper
             elif event.input.name in ["W", "S", "A", "D", "E", "F"]:
                 self._delta_pos += self._INPUT_KEY_MAPPING[event.input.name]
-            elif event.input.name in ["I", "J", "K", "L", "U", "H"]:
+            elif event.input.name in ["I", "K", "J", "L", "U", "H"]:
                 self._delta_rot += self._INPUT_KEY_MAPPING[event.input.name]
 
-            elif event.input.name == "N":
+            elif event.input.name == "R":
                 self._recording_state = 1
-            elif event.input.name == "M":
+            elif event.input.name == "G":
                 self._recording_state = 2
 
         # remove the command when un-pressed
         if event.type == carb.input.KeyboardEventType.KEY_RELEASE:
             if event.input.name in ["W", "S", "A", "D", "E", "F"]:
                 self._delta_pos -= self._INPUT_KEY_MAPPING[event.input.name]
-            elif event.input.name in ["I", "J", "K", "L", "U", "H"]:
+            elif event.input.name in ["I", "K", "J", "L", "U", "H"]:
                 self._delta_rot -= self._INPUT_KEY_MAPPING[event.input.name]
         # additional callbacks
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
@@ -193,23 +187,22 @@ class keyboard_custom(DeviceBase):
         """Creates default key binding."""
         self._INPUT_KEY_MAPPING = {
             # toggle: gripper command
-            # "LEFT_BRACKET": True,
-            # "RIGHT_BRACKET": False,
+            "O": True,
             # x-axis (forward)
-            "W": np.asarray([1.0, 0.0, 0.0]) * self.pos_sensitivity,
-            "S": np.asarray([-1.0, 0.0, 0.0]) * self.pos_sensitivity,
+            "W": np.asarray([0.0, 1.0, 0.0]) * self.pos_sensitivity,
+            "S": np.asarray([0.0, -1.0, 0.0]) * self.pos_sensitivity,
             # y-axis (left-right)
-            "A": np.asarray([0.0, 1.0, 0.0]) * self.pos_sensitivity,
-            "D": np.asarray([0.0, -1.0, 0.0]) * self.pos_sensitivity,
+            "A": np.asarray([1.0, 0.0, 0.0]) * self.pos_sensitivity,
+            "D": np.asarray([-1.0, 0.0, 0.0]) * self.pos_sensitivity,
             # z-axis (up-down)
             "E": np.asarray([0.0, 0.0, 1.0]) * self.pos_sensitivity,
             "F": np.asarray([0.0, 0.0, -1.0]) * self.pos_sensitivity,
             # roll (around x-axis)
-            "I": np.asarray([1.0, 0.0, 0.0]) * self.rot_sensitivity,
-            "K": np.asarray([-1.0, 0.0, 0.0]) * self.rot_sensitivity,
+            "J": np.asarray([1.0, 0.0, 0.0]) * self.rot_sensitivity,
+            "L": np.asarray([-1.0, 0.0, 0.0]) * self.rot_sensitivity,
             # pitch (around y-axis)
-            "J": np.asarray([0.0, 1.0, 0.0]) * self.rot_sensitivity,
-            "L": np.asarray([0.0, -1.0, 0.0]) * self.rot_sensitivity,
+            "I": np.asarray([0.0, 1.0, 0.0]) * self.rot_sensitivity,
+            "K": np.asarray([0.0, -1.0, 0.0]) * self.rot_sensitivity,
             # yaw (around z-axis)
             "U": np.asarray([0.0, 0.0, 1.0]) * self.rot_sensitivity,
             "H": np.asarray([0.0, 0.0, -1.0]) * self.rot_sensitivity,

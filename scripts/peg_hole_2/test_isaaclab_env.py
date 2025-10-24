@@ -21,7 +21,7 @@ from isaaclab.app import AppLauncher
 # Add argparse arguments
 parser = argparse.ArgumentParser(description="Test IsaacLab peg-hole environment.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to spawn.")
-parser.add_argument("--n_steps", type=int, default=24, help="Number of RL steps to run.")
+parser.add_argument("--n_steps", type=int, default=24*8, help="Number of RL steps to run.")
 parser.add_argument("--x_action", type=float, default=0.0, help="X-direction action magnitude (-1.0 to 1.0).")
 parser.add_argument("--y_action", type=float, default=0.1, help="Y-direction action magnitude (-1.0 to 1.0).")
 # parser.add_argument("--headless", action="store_true", help="Run in headless mode (no GUI).")
@@ -91,6 +91,7 @@ def main():
 
     env_cfg = parse_env_cfg(env_id, num_envs=args_cli.num_envs)
     env = gym.make(env_id, cfg=env_cfg, render_mode="rgb_array")
+    env.unwrapped.enable_env_tune_changes(True)
 
     # Get environment parameters
     num_envs = env.unwrapped.scene.num_envs
@@ -217,7 +218,7 @@ def main():
     axes1[0].plot(rl_steps, eeftip_pos_x, 'r-', label='X', linewidth=1.5, alpha=0.7)
     axes1[0].plot(rl_steps, eeftip_pos_y, 'g-', label='Y', linewidth=1.5, alpha=0.7)
     axes1[0].plot(rl_steps, eeftip_pos_z, 'b-', label='Z', linewidth=1.5, alpha=0.7)
-    axes1[0].plot(rl_steps, eeftip_pos_x, 'ro', markersize=6, label='RL Step', zorder=5)
+    # axes1[0].plot(rl_steps, eeftip_pos_x, 'ro', markersize=6, label='RL Step', zorder=5)
     axes1[0].set_xlabel('RL Step')
     axes1[0].set_ylabel('Position (m)')
     axes1[0].set_title('End-Effector Position')
@@ -228,7 +229,7 @@ def main():
     axes1[1].plot(rl_steps, eeftip_linvel_x, 'r-', label='X', linewidth=1.5, alpha=0.7)
     axes1[1].plot(rl_steps, eeftip_linvel_y, 'g-', label='Y', linewidth=1.5, alpha=0.7)
     axes1[1].plot(rl_steps, eeftip_linvel_z, 'b-', label='Z', linewidth=1.5, alpha=0.7)
-    axes1[1].plot(rl_steps, eeftip_linvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
+    # axes1[1].plot(rl_steps, eeftip_linvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
     axes1[1].set_xlabel('RL Step')
     axes1[1].set_ylabel('Linear Velocity (m/s)')
     axes1[1].set_title('End-Effector Linear Velocity')
@@ -239,7 +240,7 @@ def main():
     axes1[2].plot(rl_steps, eeftip_angvel_x, 'r-', label='X', linewidth=1.5, alpha=0.7)
     axes1[2].plot(rl_steps, eeftip_angvel_y, 'g-', label='Y', linewidth=1.5, alpha=0.7)
     axes1[2].plot(rl_steps, eeftip_angvel_z, 'b-', label='Z', linewidth=1.5, alpha=0.7)
-    axes1[2].plot(rl_steps, eeftip_angvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
+    # axes1[2].plot(rl_steps, eeftip_angvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
     axes1[2].set_xlabel('RL Step')
     axes1[2].set_ylabel('Angular Velocity (rad/s)')
     axes1[2].set_title('End-Effector Angular Velocity')
@@ -262,7 +263,7 @@ def main():
     axes2[0].plot(timestamps, eeftip_pos_x, 'r-', label='X', linewidth=1.5, alpha=0.7)
     axes2[0].plot(timestamps, eeftip_pos_y, 'g-', label='Y', linewidth=1.5, alpha=0.7)
     axes2[0].plot(timestamps, eeftip_pos_z, 'b-', label='Z', linewidth=1.5, alpha=0.7)
-    axes2[0].plot(timestamps, eeftip_pos_x, 'ro', markersize=6, label='RL Step', zorder=5)
+    # axes2[0].plot(timestamps, eeftip_pos_x, 'ro', markersize=6, label='RL Step', zorder=5)
     axes2[0].set_xlabel('Time (s)')
     axes2[0].set_ylabel('Position (m)')
     axes2[0].set_title('End-Effector Position')
@@ -273,7 +274,7 @@ def main():
     axes2[1].plot(timestamps, eeftip_linvel_x, 'r-', label='X', linewidth=1.5, alpha=0.7)
     axes2[1].plot(timestamps, eeftip_linvel_y, 'g-', label='Y', linewidth=1.5, alpha=0.7)
     axes2[1].plot(timestamps, eeftip_linvel_z, 'b-', label='Z', linewidth=1.5, alpha=0.7)
-    axes2[1].plot(timestamps, eeftip_linvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
+    # axes2[1].plot(timestamps, eeftip_linvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
     axes2[1].set_xlabel('Time (s)')
     axes2[1].set_ylabel('Linear Velocity (m/s)')
     axes2[1].set_title('End-Effector Linear Velocity')
@@ -284,7 +285,7 @@ def main():
     axes2[2].plot(timestamps, eeftip_angvel_x, 'r-', label='X', linewidth=1.5, alpha=0.7)
     axes2[2].plot(timestamps, eeftip_angvel_y, 'g-', label='Y', linewidth=1.5, alpha=0.7)
     axes2[2].plot(timestamps, eeftip_angvel_z, 'b-', label='Z', linewidth=1.5, alpha=0.7)
-    axes2[2].plot(timestamps, eeftip_angvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
+    # axes2[2].plot(timestamps, eeftip_angvel_x, 'ko', markersize=6, label='RL Step', zorder=5)
     axes2[2].set_xlabel('Time (s)')
     axes2[2].set_ylabel('Angular Velocity (rad/s)')
     axes2[2].set_title('End-Effector Angular Velocity')
@@ -356,10 +357,10 @@ def main():
 
             # Plot X direction
             axes[0].plot(x_info['x_axis'], data_info['x'], 'r-', linewidth=2, alpha=0.8, label='Actual X')
-            axes[0].plot(x_info['x_axis'], data_info['x'], 'ro', markersize=6, zorder=5)
+            # axes[0].plot(x_info['x_axis'], data_info['x'], 'ro', markersize=6, zorder=5)
             if is_position:
                 axes[0].plot(x_info['x_axis'], desired_pos_x, 'r--', linewidth=2, alpha=0.6, label='Desired X')
-                axes[0].plot(x_info['x_axis'], desired_pos_x, 'rx', markersize=6, zorder=5)
+                # axes[0].plot(x_info['x_axis'], desired_pos_x, 'rx', markersize=6, zorder=5)
             axes[0].set_xlabel(x_info['x_label'])
             axes[0].set_ylabel(f'{data_info["y_label"]} (X)')
             axes[0].set_title('X Direction')
@@ -368,10 +369,10 @@ def main():
 
             # Plot Y direction
             axes[1].plot(x_info['x_axis'], data_info['y'], 'g-', linewidth=2, alpha=0.8, label='Actual Y')
-            axes[1].plot(x_info['x_axis'], data_info['y'], 'go', markersize=6, zorder=5)
+            # axes[1].plot(x_info['x_axis'], data_info['y'], 'go', markersize=6, zorder=5)
             if is_position:
                 axes[1].plot(x_info['x_axis'], desired_pos_y, 'g--', linewidth=2, alpha=0.6, label='Desired Y')
-                axes[1].plot(x_info['x_axis'], desired_pos_y, 'gx', markersize=6, zorder=5)
+                # axes[1].plot(x_info['x_axis'], desired_pos_y, 'gx', markersize=6, zorder=5)
             axes[1].set_xlabel(x_info['x_label'])
             axes[1].set_ylabel(f'{data_info["y_label"]} (Y)')
             axes[1].set_title('Y Direction')
@@ -380,10 +381,10 @@ def main():
 
             # Plot Z direction
             axes[2].plot(x_info['x_axis'], data_info['z'], 'b-', linewidth=2, alpha=0.8, label='Actual Z')
-            axes[2].plot(x_info['x_axis'], data_info['z'], 'bo', markersize=6, zorder=5)
+            # axes[2].plot(x_info['x_axis'], data_info['z'], 'bo', markersize=6, zorder=5)
             if is_position:
                 axes[2].plot(x_info['x_axis'], desired_pos_z, 'b--', linewidth=2, alpha=0.6, label='Desired Z')
-                axes[2].plot(x_info['x_axis'], desired_pos_z, 'bx', markersize=6, zorder=5)
+                # axes[2].plot(x_info['x_axis'], desired_pos_z, 'bx', markersize=6, zorder=5)
             axes[2].set_xlabel(x_info['x_label'])
             axes[2].set_ylabel(f'{data_info["y_label"]} (Z)')
             axes[2].set_title('Z Direction')

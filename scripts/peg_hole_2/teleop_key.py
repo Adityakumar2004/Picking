@@ -34,7 +34,7 @@ from isaaclab_tasks.utils import parse_env_cfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 import isaaclab.sim as sim_utils
-# from utils_1 import env_wrapper, log_values
+from utils_1 import env_wrapper, log_values
 import os
 from keyboard_interface import keyboard_custom
 dt = 0.1
@@ -50,118 +50,120 @@ if ISAACLAB_ROOT not in sys.path:
 
 # from scripts.peg_hole_2.robot_env import RobotEnv, RobotEnvCfg
 
-# class ControllerWindow:
-#     """A UI window for controlling robot parameters with sliders."""
+class ControllerWindow:
+    """A UI window for controlling robot parameters with sliders."""
     
-#     def __init__(self, env:gym.Env=None):
-#         """
-#         Initialize the controller window.
+    def __init__(self, env:gym.Env=None):
+        """
+        Initialize the controller window.
         
-#         Args:
-#             initial_kp (float): Initial Kp value
-#             initial_kd (float): Initial Kd value
-#         """
+        Args:
+            initial_kp (float): Initial Kp value
+            initial_kd (float): Initial Kd value
+        """
 
-#         self.slider_params = {}
-#         self.env = env
-#         # self.env = env
+        self.slider_params = {}
+        self.env = env
+        # self.env = env
     
-#     # Button to set the filename
-#     def on_set_filename(self):
-#         filename = self.filename_field.model.as_string
-#         print(f"Logging to file: {filename}")
-#         # Your logging code here
-#         # start_logging(filename)
+    # Button to set the filename
+    def on_set_filename(self):
+        filename = self.filename_field.model.as_string
+        print(f"Logging to file: {filename}")
+        # Your logging code here
+        # start_logging(filename)
 
     
     
-#     def create_window(self):
-#         """Create the UI window and its contents."""
-#         self.window = ui.Window("Controller Panel", width=300, height=200, 
-#                                flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
+    def create_window(self):
+        """Create the UI window and its contents."""
+        self.window = ui.Window("Controller Panel", width=300, height=200, 
+                               flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
         
-#         with self.window.frame:
-#             with ui.VStack(spacing=10):
-#                 for param_name in self.slider_params.keys():
-#                     ui.Label(f"{param_name}")
-#                     ui.FloatSlider(
-#                         model=self.slider_params[param_name]['model'], 
-#                         min=self.slider_params[param_name]['min'], 
-#                         max=self.slider_params[param_name]['max']
-#                     )
-#                     ui.Spacer(height=10)
+        with self.window.frame:
+            with ui.VStack(spacing=10):
+                for param_name in self.slider_params.keys():
+                    ui.Label(f"{param_name}")
+                    ui.FloatSlider(
+                        model=self.slider_params[param_name]['model'], 
+                        min=self.slider_params[param_name]['min'], 
+                        max=self.slider_params[param_name]['max']
+                    )
+                    ui.Spacer(height=10)
                 
-#         self.reset_window = ui.Window("reset_window", width=100, height=50, 
-#                                flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
+        self.reset_window = ui.Window("reset_window", width=100, height=50, 
+                               flags=ui.WINDOW_FLAGS_NO_COLLAPSE)
 
-#         with self.reset_window.frame:
-#             with ui.VStack(spacing=10):
-#                 ui.Label("Reset Parameters")
-#                 ui.Button("Reset", clicked_fn=self._on_reset_clicked)
+        with self.reset_window.frame:
+            with ui.VStack(spacing=10):
+                ui.Label("Reset Parameters")
+                ui.Button("Reset", clicked_fn=self._on_reset_clicked)
 
-#                 ui.Label("log file name")
-#                 self.filename_field = ui.StringField(
-#                     model=ui.SimpleStringModel("test_log"),
-#                 )
+                ui.Label("log file name")
+                self.filename_field = ui.StringField(
+                    model=ui.SimpleStringModel("test_log"),
+                )
 
-#                 ui.Button("Set Filename", clicked_fn=self.on_set_filename)
-
-
+                ui.Button("Set Filename", clicked_fn=self.on_set_filename)
 
 
 
-#         # Ensure window is visible
-#         self.window.visible = True
-#         print("UI Controller Panel created and should be visible")
-#         # print(f"Initial values: kp={self.kp_model.as_float}, kd={self.kd_model.as_float}")
 
-#     def _on_reset_clicked(self):
-#         print("env reset ")
-#         # self.env.reset()
-#         env_ids = torch.arange(self.env.unwrapped.scene.num_envs, device=self.env.unwrapped.device)
-#         joint_pos = self.env.unwrapped._robot.data.default_joint_pos[env_ids].clone()
-#         joint_vel = torch.zeros_like(joint_pos)
-#         self.env.unwrapped._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-#         self.env.unwrapped._robot.set_joint_position_target(joint_pos, env_ids = env_ids)
-#         self.env.unwrapped._robot.set_joint_velocity_target(joint_vel, env_ids = env_ids)
 
-#         # self.env.unwrapped.step_sim_no_action()
+        # Ensure window is visible
+        self.window.visible = True
+        print("UI Controller Panel created and should be visible")
+        # print(f"Initial values: kp={self.kp_model.as_float}, kd={self.kd_model.as_float}")
+
+    def _on_reset_clicked(self):
+        print("env reset ")
+        # self.env.reset()
+        env_ids = torch.arange(self.env.unwrapped.scene.num_envs, device=self.env.unwrapped.device)
+        joint_pos = self.env.unwrapped._robot.data.default_joint_pos[env_ids].clone()
+        joint_vel = torch.zeros_like(joint_pos)
+        joint_pos[:, :7] = torch.tensor(self.env.unwrapped.reset_joints_real_hardware, device=self.env.unwrapped.device)[None, :]
+        self.env.unwrapped._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        self.env.unwrapped._robot.set_joint_position_target(joint_pos, env_ids = env_ids)
+        self.env.unwrapped._robot.set_joint_velocity_target(joint_vel, env_ids = env_ids)
+        self.env.unwrapped._robot.reset()
+
+        # self.env.unwrapped.step_sim_no_action()
         
 
-#     def _setup_callbacks(self):
-#         """Setup callbacks for model changes."""
-#         # self.models['kp'].add_value_changed_fn(self._on_kp_changed)
-#         # self.models['kd'].add_value_changed_fn(self._on_kd_changed)
-#         pass;
+    def _setup_callbacks(self):
+        """Setup callbacks for model changes."""
+        # self.models['kp'].add_value_changed_fn(self._on_kp_changed)
+        # self.models['kd'].add_value_changed_fn(self._on_kd_changed)
+        pass;
 
-#     def get_params(self, param_name):
-#         """Get current parameters as dictionary."""
-#         return self.slider_params[param_name]["value"]
+    def get_params(self, param_name):
+        """Get current parameters as dictionary."""
+        return self.slider_params[param_name]["value"]
     
-#     def set_visible(self, visible):
-#         """Show or hide the window."""
-#         if self.window:
-#             self.window.visible = visible
+    def set_visible(self, visible):
+        """Show or hide the window."""
+        if self.window:
+            self.window.visible = visible
     
-#     def destroy(self):
-#         """Clean up the window."""
-#         if self.window:
-#             self.window.destroy()
-#             self.window = None
+    def destroy(self):
+        """Clean up the window."""
+        if self.window:
+            self.window.destroy()
+            self.window = None
 
-#     def create_new_slider_widget(self, param_name, value, min_val=0, max_val=1000, callback_fn=None, **kwargs):
+    def create_new_slider_widget(self, param_name, value, min_val=0, max_val=1000, callback_fn=None, **kwargs):
 
-#         if param_name in self.slider_params.keys():
-#             print(f"Model {param_name} already exists.")
-#             return
-#         self.slider_params[param_name] = {
-#             'model': ui.SimpleFloatModel(value),
-#             'value': value,
-#             'min': min_val,
-#             'max': max_val,
-#         }
-#         callback_fn_model = lambda m: callback_fn(self.slider_params[param_name], m, **kwargs)
-#         self.slider_params[param_name]['model'].add_value_changed_fn(callback_fn_model)
+        if param_name in self.slider_params.keys():
+            print(f"Model {param_name} already exists.")
+            return
+        self.slider_params[param_name] = {
+            'model': ui.SimpleFloatModel(value),
+            'value': value,
+            'min': min_val,
+            'max': max_val,
+        }
+        callback_fn_model = lambda m: callback_fn(self.slider_params[param_name], m, **kwargs)
+        self.slider_params[param_name]['model'].add_value_changed_fn(callback_fn_model)
 
 
 ## callback_fn 
@@ -224,7 +226,7 @@ def make_env(video_folder:str | None =None, output_type: str = "numpy"):
 
     gym.register(
         id=id_name,
-        entry_point="scripts.peg_hole_2.factory_env_diff_ik:FactoryEnv",
+        entry_point="scripts.peg_hole_2.absolute_target_env:FactoryEnv",
         disable_env_checker=True,
         kwargs={
             "env_cfg_entry_point":"scripts.peg_hole_2.factory_env_cfg_diff_ik:FactoryTaskPegInsertCfg",
@@ -317,6 +319,7 @@ def create_marker_frames(count=1, scale=(0.01,0.01,0.01)):
 
 def main():
     env = make_env(video_folder=None, output_type="numpy")
+    env.unwrapped.enable_env_tune_changes(True)
     env.reset()
 
     keyboard = keyboard_custom(pos_sensitivity=1.0*args_cli.sensitivity, rot_sensitivity=1.0*args_cli.sensitivity)
@@ -324,7 +327,7 @@ def main():
     print(f"\n\n{keyboard}\n\n")
 
 
-    # controller_window = ControllerWindow(env)
+    controller_window = ControllerWindow(env)
     
     # controller_window.create_new_slider_widget(
     #     param_name="kp_arm1",
@@ -364,7 +367,7 @@ def main():
     #     group_name="kinova_forearm"
     # )
 
-    # controller_window.create_window()
+    controller_window.create_window()
     
     num_envs = env.unwrapped.scene.num_envs
 
@@ -386,8 +389,8 @@ def main():
             print("\n resetting the env \n ", "---"*10, "\n")
             env.reset()
         
-        # pose_action[:3] = pose_action[:3] * 0.03 
-        # pose_action[3:6] = pose_action[3:6] * 0.06
+        pose_action[:3] = pose_action[:3] * 0.1 
+        pose_action[3:6] = pose_action[3:6] * 0.097
         
 
         # if close_gripper:
