@@ -381,9 +381,18 @@ def main():
 
     
             pose_action = np.zeros(6, dtype=np.float32)
-            pose_action[0] = 0.1
+            pose_action[0] = 0.02
             recording_step += 1
 
+            if recording_step >= 8 and recording_step < 16:
+                pose_action[0] = 0.04
+            
+            if recording_step >= 16 and recording_step < 24:
+                pose_action[0]  = 0.02
+            
+            if recording_step >= 24:
+                pose_action[0] = 0.0
+            
             if recording_step >= 180:
                 recording_step = 0
                 execute_trajectory = False
@@ -401,16 +410,19 @@ def main():
 
         actions = torch.from_numpy(pose_action).float().repeat(env.unwrapped.scene.num_envs, 1)
         next_obs, reward, terminated, truncated, info_custom = env.step(actions)
+        total_obs_space = {"policy": env.unwrapped.observation_space, "critic": env.unwrapped.state_space}
+        print("critic space and policy space \n",total_obs_space["critic"].shape[-1],total_obs_space["policy"].shape[-1])
+        
 
         print("----"*8, "simulation step ",step, "----"*8)
         # print("velocity limit \n", env.unwrapped._robot.data.joint_vel_limits)
-        print("torque limit \n", env.unwrapped._robot.data.joint_effort_limits)
-        print("arm joint ids \n", env.unwrapped.arm_joint_ids)
-        joint_indices = []
-        for g_name in ["kinova_shoulder", "kinova_forearm"]:
-            joint_indices.extend(env.unwrapped._robot.actuators[g_name].joint_indices)
-        print("group ids \n", joint_indices)
-        print("applied torques \n", env.unwrapped._robot.data.applied_torque[0, :7])
+        # print("torque limit \n", env.unwrapped._robot.data.joint_effort_limits[0,:])
+        # print("arm joint ids \n", env.unwrapped.arm_joint_ids)
+        # joint_indices = []
+        # for g_name in ["kinova_shoulder", "kinova_forearm"]:
+        #     joint_indices.extend(env.unwrapped._robot.actuators[g_name].joint_indices)
+        # print("group ids \n", joint_indices)
+        # print("applied torques \n", env.unwrapped._robot.data.applied_torque[0, :7])
         step+=1
 
     env.close()

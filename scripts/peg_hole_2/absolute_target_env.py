@@ -328,27 +328,7 @@ class FactoryEnv(DirectRLEnv):
         self.last_update_timestamp = self._robot._data._sim_timestamp
 
         ## logging
-        self.logging_dict["fingertip_pos"] = self.fingertip_midpoint_pos.clone().cpu().numpy()
-        self.logging_dict["fingertip_quat"] = self.fingertip_midpoint_quat.clone().cpu().numpy()
-
-        ## finding the pose for gen3_bracelet_link
-        brace_link_idx = self._robot.body_names.index("gen3_bracelet_link")
-        # print("brace_link_idx", brace_link_idx)
-        self.logging_dict["gen3_bracelet_link_pos"] = self._robot.data.body_pos_w[:, brace_link_idx].clone().cpu().numpy()
-        self.logging_dict["gen3_bracelet_link_quat"] = self._robot.data.body_quat_w[:, brace_link_idx].clone().cpu().numpy()
-        ## finding the pose for gen3_end_effector_link
-        end_effector_idx = self._robot.body_names.index("gen3_end_effector_link")
-        self.logging_dict["gen3_end_effector_link_pos"] = self._robot.data.body_pos_w[:, end_effector_idx].clone().cpu().numpy()
-        self.logging_dict["gen3_end_effector_link_quat"] = self._robot.data.body_quat_w[:, end_effector_idx].clone().cpu().numpy()
-        ## logging the ee linvel and angvel
-        self.logging_dict["ee_linvel"] = self.ee_linvel_fd.clone().cpu().numpy()
-        self.logging_dict["ee_angvel"] = self.ee_angvel_fd.clone().cpu().numpy()
-        # print("======================== intermediate values computed ========================")
-        # print("ee linvel ", self.ee_linvel_fd[0].cpu().numpy())
-        # print("ee angvel ", self.ee_angvel_fd[0].cpu().numpy())
-        ## logging the joint pos and vel
-        self.logging_dict["joint_pos"] = self.joint_pos[:, 0:7].clone().cpu().numpy()
-        self.logging_dict["joint_vel"] = self.joint_vel[:, 0:7].clone().cpu().numpy()
+        print("ee_linvel_fd: \n", self.ee_linvel_fd)
 
     def _get_observations(self):
         """Get actor/critic inputs using asymmetric critic."""
@@ -407,7 +387,7 @@ class FactoryEnv(DirectRLEnv):
         
         self.actions = action.clone().to(self.device)
 
-        self._compute_intermediate_values(dt=self.physics_dt)
+        # self._compute_intermediate_values(dt=self.physics_dt)
         # fingertip_midpoint_pos_b, fingertip_midpoint_quat_b = self._compute_frame_pose(self.fingertip_midpoint_pos.clone(), self.fingertip_midpoint_quat.clone())
     
 
@@ -1277,6 +1257,9 @@ class RobotEnvLogging(FactoryEnv):
             'ee_pos_x': self.fingertip_midpoint_pos[env_idx, 0].item(),
             'ee_pos_y': self.fingertip_midpoint_pos[env_idx, 1].item(),
             'ee_pos_z': self.fingertip_midpoint_pos[env_idx, 2].item(),
+            'ee_lin_vel_x': self.ee_linvel_fd[env_idx, 0].item(),
+            'ee_lin_vel_y': self.ee_linvel_fd[env_idx, 1].item(),
+            'ee_lin_vel_z': self.ee_linvel_fd[env_idx, 2].item(),
         }
         ## desired pos
         log_entry['desired_ee_pos_x'] = self.ctrl_target_fingertip_midpoint_pos[env_idx, 0].item()

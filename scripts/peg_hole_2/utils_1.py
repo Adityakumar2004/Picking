@@ -329,14 +329,12 @@ def TestingAgent(env, device, num_envs, agent, checkpoint_path, num_episodes = 2
                 env.normalizers[k].count = state['count']
                 env.normalizers[k].clip_range = state['clip_range']
 
-
     agent.load_state_dict(checkpoint["agent"])
 
     # if critic_normalization:
     #     agent.critic_normalizer.load_state_dict(checkpoint["critic_normalizer"])
 
     print(f"Loaded checkpoint from {checkpoint_path}")
-
 
     with torch.no_grad():
         env.eval()  # set the env to evaluation mode
@@ -350,7 +348,6 @@ def TestingAgent(env, device, num_envs, agent, checkpoint_path, num_episodes = 2
         rewards_list = []
         raw_reward_list = []
         all_success_rates = []
-
 
 
         for i in range(num_episodes):
