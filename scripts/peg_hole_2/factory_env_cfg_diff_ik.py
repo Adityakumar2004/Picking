@@ -65,7 +65,7 @@ class CtrlCfg:
     pos_action_bounds = [5.5, 5.5, 5.5] #[0.05, 0.05, 0.05]
     rot_action_bounds = [1.0, 1.0, 1.0]
 
-    pos_action_threshold = [1.0, 1.0, 1.0]#[0.02, 0.02, 0.02]
+    pos_action_threshold = [0.02, 0.02, 0.02] # [1.0, 1.0, 1.0]#
     rot_action_threshold = [0.097, 0.097, 0.097]
 
     reset_joints = [1.5178e-03, -1.9651e-01, -1.4364e-03, -1.9761, -2.7717e-04, 1.7796, 7.8556e-01]
@@ -83,7 +83,7 @@ class FactoryEnvCfg(DirectRLEnvCfg):
     default_joint_pos = np.array([1, 1.0, 1.0, 1, -0.8, -0.8])*0.07
     ## rounding the numbers and converting to list to avoid precision issues while comparing with the config
     default_joint_pos = np.round(default_joint_pos, decimals=4).tolist()
-    decimation = 1
+    decimation = 8
     action_space = 6
     # num_*: will be overwritten to correspond to obs_order, state_order.
     observation_space = 21
@@ -182,23 +182,23 @@ class FactoryEnvCfg(DirectRLEnvCfg):
         actuators={
             "kinova_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[1-4]"],
-                # effort_limit= 2,
-                # velocity_limit=1.0,
+                effort_limit= 2,
+                velocity_limit=1.0,
                 stiffness=800.0,
                 damping=160.0,
-                effort_limit=4000.0,
-                velocity_limit=675,
+                # effort_limit=4000.0,
+                # velocity_limit=675,
                 # stiffness=1800.0,
                 # damping=10.0,
             ),
             "kinova_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["gen3_joint_[5-7]"], 
-                # effort_limit= 2,
-                # velocity_limit=1.0,#2.5,
+                effort_limit= 2,
+                velocity_limit=1.0,#2.5,
                 stiffness=800.0, 
                 damping=160.0,
-                effort_limit=4000.0,
-                velocity_limit=675,
+                # effort_limit=4000.0,
+                # velocity_limit=675,
                 # stiffness=1800.0,
                 # damping=10.0,
 

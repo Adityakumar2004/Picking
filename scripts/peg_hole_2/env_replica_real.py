@@ -1,33 +1,232 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
 # Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-# import argparse
-# from isaaclab.app import AppLauncher
-# # add argparse arguments
-# parser = argparse.ArgumentParser(description="cartpole scene.")
-# parser.add_argument("--num_envs", type=int, default=3, help="Number of environments to spawn.")
-
-# # append AppLauncher cli args
-# AppLauncher.add_app_launcher_args(parser)
-# # parse the arguments
-# args_cli = parser.parse_args()
-# # launch omniverse app
-# app_launcher = AppLauncher(args_cli)
-# simulation_app = app_launcher.app
 import json
-import os
+
 import pandas as pd
-from datetime import datetime
+import isaaclab.sim as sim_utils
+from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
+from isaaclab.assets import ArticulationCfg
+from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sim import PhysxCfg, SimulationCfg
+from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
+from isaaclab.utils import configclass
+from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
+import os
+
+from .factory_tasks_cfg import ASSET_DIR, FactoryTask, PegInsert
+import numpy as np
+
+## changes maded
+# action bounds in CtrlCfg
+# action thresholds in CtrlCfg 
+# decimation in FactoryEnvCfg 8 --> 1
+# episode length 
+
+ROBOT_ASSET_DIR = os.path.join(os.path.dirname(__file__), "usd")
+
+
+OBS_DIM_CFG = {
+    "fingertip_pos": 3,
+    "fingertip_pos_rel_fixed": 3,
+    "fingertip_quat": 4,
+    "ee_linvel": 3,
+    "ee_angvel": 3,
+}
+
+STATE_DIM_CFG = {
+    "fingertip_pos": 3,
+    "fingertip_pos_rel_fixed": 3,
+    "fingertip_quat": 4,
+    "ee_linvel": 3,
+    "ee_angvel": 3,
+    "joint_pos": 7,
+    "held_pos": 3,
+    "held_pos_rel_fixed": 3,
+    "held_quat": 4,
+    "fixed_pos": 3,
+    "fixed_quat": 4,
+    "task_prop_gains": 6,
+    "ema_factor": 1,
+    "pos_threshold": 3,
+    "rot_threshold": 3,
+}
+
+
+@configclass
+class ObsRandCfg:
+    fixed_asset_pos = [0.001, 0.001, 0.001]
+
+@configclass
+class CtrlCfg:
+    ema_factor = 0.2
+
+    pos_action_bounds = [1, 1, 1]
+    rot_action_bounds = [1.0, 1.0, 1.0]
+
+    pos_action_threshold = [1.0, 1.0, 1.0]#[0.02, 0.02, 0.02]
+    rot_action_threshold = [0.097, 0.097, 0.097]
+
+    reset_joints = [1.5178e-03, -1.9651e-01, -1.4364e-03, -1.9761, -2.7717e-04, 1.7796, 7.8556e-01]
+    reset_task_prop_gains = [300, 300, 300, 20, 20, 20]
+    reset_rot_deriv_scale = 10.0
+    default_task_prop_gains = [100, 100, 100, 30, 30, 30]
+
+    # Null space parameters.
+    default_dof_pos_tensor = [-1.3003, -0.4015, 1.1791, -2.1493, 0.4001, 1.9425, 0.4754]
+    kp_null = 10.0
+    kd_null = 6.3246
+
+@configclass
+class FactoryEnvCfg(DirectRLEnvCfg):
+    default_joint_pos = np.array([1, 1.0, 1.0, 1, -0.8, -0.8])*0.07
+    ## rounding the numbers and converting to list to avoid precision issues while comparing with the config
+    default_joint_pos = np.round(default_joint_pos, decimals=4).tolist()
+    decimation = 8
+    action_space = 6
+    # num_*: will be overwritten to correspond to obs_order, state_order.
+    observation_space = 21
+    state_space = 72
+    obs_order: list = ["fingertip_pos_rel_fixed", "fingertip_quat", "ee_linvel", "ee_angvel"]
+    state_order: list = [
+        "fingertip_pos",
+        "fingertip_quat",
+        "ee_linvel",
+        "ee_angvel",
+        "joint_pos",
+        "held_pos",
+        "held_pos_rel_fixed",
+        "held_quat",
+        "fixed_pos",
+        "fixed_quat",
+    ]
+
+    task_name: str = "peg_insert"  # peg_insert, gear_mesh, nut_thread
+    task: FactoryTask = FactoryTask()
+    obs_rand: ObsRandCfg = ObsRandCfg()
+    ctrl: CtrlCfg = CtrlCfg()
+
+    episode_length_s = 60*60*2 #10.0  # Probably need to override.
+    sim: SimulationCfg = SimulationCfg(
+        device="cuda:0",
+        dt=1 / 120,
+        gravity=(0.0, 0.0, -9.81),
+        physx=PhysxCfg(
+            solver_type=1,
+            max_position_iteration_count=192,  # Important to avoid interpenetration.
+            max_velocity_iteration_count=1,
+            bounce_threshold_velocity=0.2,
+            friction_offset_threshold=0.01,
+            friction_correlation_distance=0.00625,
+            gpu_max_rigid_contact_count=2**23,
+            gpu_max_rigid_patch_count=2**23,
+            gpu_max_num_partitions=1,  # Important for stable simulation.
+        ),
+        physics_material=RigidBodyMaterialCfg(
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+    )
+
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=128, env_spacing=2.0)
+
+    robot = ArticulationCfg(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=os.path.join(ROBOT_ASSET_DIR, "Robots/Kinova/gen3n7.usd"),
+            activate_contact_sensors=False,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                disable_gravity=True,
+                max_depenetration_velocity=5.0,
+            ),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                enabled_self_collisions=False,
+                solver_position_iteration_count=8,
+                solver_velocity_iteration_count=0,
+            ),
+        ),
+
+        init_state=ArticulationCfg.InitialStateCfg(
+            # joint_pos={
+            #     "gen3_joint_1": 0.00871,
+            #     "gen3_joint_2": -0.10368,
+            #     "gen3_joint_3": -0.00794,
+            #     "gen3_joint_4": -1.49139,
+            #     "gen3_joint_5": -0.00083,
+            #     "gen3_joint_6": 1.38774,
+            #     "gen3_joint_7": 0.0,
+            #     "finger_joint": 0.04,
+            #     "left_inner_knuckle_joint": 0.0, # 0, 0.8757
+            #     "right_inner_knuckle_joint": 0.0, # 0, 0.8757
+            #     "right_outer_knuckle_joint": 0.0, # 0, 0.81
+            #     "left_inner_finger_joint": 0.0, #-0.8757, 0
+            #     "right_inner_finger_joint": 0.0, #-0.8757, 0
+            # },
+            joint_pos={
+                "gen3_joint_1": -0.0390,
+                "gen3_joint_2": 0.8417,
+                "gen3_joint_3": -0.0531,
+                "gen3_joint_4": 2.2894,
+                "gen3_joint_5": -0.0744,
+                "gen3_joint_6": -1.5667,
+                "gen3_joint_7": -1.5310,
+                "finger_joint": default_joint_pos[0], #0.4, # 0, 0.8
+                "left_inner_knuckle_joint": default_joint_pos[1], #0.1, # 0, 0.8757
+                "right_inner_knuckle_joint": default_joint_pos[2], #0.1, # 0, 0.8757
+                "right_outer_knuckle_joint": default_joint_pos[3], #0.1, # 0, 0.81
+                "left_inner_finger_joint": default_joint_pos[4], #-0.08, #-0.8757, 0
+                "right_inner_finger_joint": default_joint_pos[5], #-0.08, #-0.8757, 0
+            },
+        ),
+        actuators={
+            "kinova_shoulder": ImplicitActuatorCfg(
+                joint_names_expr=["gen3_joint_[1-4]"],
+                # effort_limit= 2,
+                # velocity_limit=1.0,
+                stiffness=800.0,
+                damping=160.0,
+                effort_limit=4000.0,
+                velocity_limit=675,
+                # stiffness=1800.0,
+                # damping=10.0,
+            ),
+            "kinova_forearm": ImplicitActuatorCfg(
+                joint_names_expr=["gen3_joint_[5-7]"], 
+                # effort_limit= 2,
+                # velocity_limit=1.0,#2.5,
+                stiffness=800.0, 
+                damping=160.0,
+                effort_limit=4000.0,
+                velocity_limit=675,
+                # stiffness=1800.0,
+                # damping=10.0,
+
+            ),
+            "kinova_gripper": ImplicitActuatorCfg(
+                joint_names_expr=['finger_joint', 'left_inner_knuckle_joint', 'right_inner_knuckle_joint', 'right_outer_knuckle_joint', 'left_inner_finger_joint', 'right_inner_finger_joint'],
+                effort_limit=200.0,
+                velocity_limit=0.04,
+                stiffness=7500.0,
+                damping=100.0,
+                friction=0.1,
+                armature=0.0,
+            ),
+        },
+    )
+
+    diff_ik_cfg = DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls")
+    
+@configclass
+class FactoryTaskPegInsertCfg(FactoryEnvCfg):
+    task_name = "peg_insert"
+    task = PegInsert()
+    episode_length_s = 60*60*2
+
 import isaaclab
 from isaaclab.envs.ui import ViewportCameraController
-
 
 import numpy as np
 import torch
@@ -45,8 +244,6 @@ from isaaclab.utils.math import matrix_from_quat, quat_inv
 from isaaclab.utils.math import subtract_frame_transforms
 
 import factory_control as fc
-from .factory_env_cfg_diff_ik import OBS_DIM_CFG, STATE_DIM_CFG, FactoryEnvCfg
-from .factory_env_cfg_diff_ik import FactoryTaskPegInsertCfg
 from isaaclab.controllers import DifferentialIKController
 from isaaclab.sensors import CameraCfg, Camera
 
@@ -64,7 +261,6 @@ class FactoryEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.changes_bool = True
-        self.env_tune_changes = False
         self._set_body_inertias()
         self._init_tensors()
         self._set_default_dynamics_parameters()
@@ -82,13 +278,11 @@ class FactoryEnv(DirectRLEnv):
 
         arm_joint_names = ["gen3_joint_.*"]
         self.arm_joint_ids = self._robot.find_joints(arm_joint_names)[0]
-
-
+        
         self.diff_ik_controller = DifferentialIKController(cfg.diff_ik_cfg, num_envs=cfg.scene.num_envs, device=self.device)
         self.transform_jacobian = True
 
-        ## reset joints for absolute target reach
-        self.reset_joints_real_hardware = [-0.04732, 0.8512, 0.52427, 1.1822, -0.54393, 1.254, -2.20947]
+        self.replica_changes_bool = False
 
     def _set_body_inertias(self):
         """Note: this is to account for the asset_options.armature parameter in IGE."""
@@ -144,6 +338,8 @@ class FactoryEnv(DirectRLEnv):
         held_base_x_offset = 0.0
         if self.cfg_task.name == "peg_insert":
             held_base_z_offset = 0.0
+        else:
+            raise NotImplementedError("Task not implemented")
 
         self.held_base_pos_local = torch.tensor([0.0, 0.0, 0.0], device=self.device).repeat((self.num_envs, 1))
         self.held_base_pos_local[:, 0] = held_base_x_offset
@@ -177,16 +373,16 @@ class FactoryEnv(DirectRLEnv):
 
         # Used to compute target poses.
         self.fixed_success_pos_local = torch.zeros((self.num_envs, 3), device=self.device)
-        self.fixed_success_pos_local[:, 2] = 0.0
+        if self.cfg_task.name == "peg_insert":
+            self.fixed_success_pos_local[:, 2] = 0.0
+        else:
+            raise NotImplementedError("Task not implemented")
 
         self.ep_succeeded = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
         self.ep_success_times = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
 
         ## logging dict
         self.logging_dict = {}
-
-        # self.applied_dof_torque = torch.zeros((self.num_envs, 7), device=self.device)
-        # self.computed_dof_torque = torch.zeros((self.num_envs, 7), device=self.device)
 
     def _get_keypoint_offsets(self, num_keypoints):
         """Get uniformly-spaced keypoints along a line of unit length, centered at 0."""
@@ -201,9 +397,9 @@ class FactoryEnv(DirectRLEnv):
 
         # spawn a usd file of a table into the scene
         cfg = sim_utils.UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd")
-        cfg.func(
-            "/World/envs/env_.*/Table", cfg, translation=(0.55, 0.0, 0.0), orientation=(0.70711, 0.0, 0.0, 0.70711)
-        )
+        # cfg.func(
+        #     "/World/envs/env_.*/Table", cfg, translation=(0.55, 0.0, -0.1), orientation=(0.70711, 0.0, 0.0, 0.70711)
+        # )
         
         ## cameras for visualization
         self.camera1_cfg = CameraCfg(
@@ -241,13 +437,11 @@ class FactoryEnv(DirectRLEnv):
         self._fixed_asset = Articulation(self.cfg_task.fixed_asset)
         self._held_asset = Articulation(self.cfg_task.held_asset)
 
-
         self.scene.clone_environments(copy_from_source=False)
 
         self.scene.articulations["robot"] = self._robot
         self.scene.articulations["fixed_asset"] = self._fixed_asset
         self.scene.articulations["held_asset"] = self._held_asset
-
 
         # self.scene.sensors["camera1"] = self.camera1
         # self.scene.sensors["camera2"] = self.camera2
@@ -324,11 +518,33 @@ class FactoryEnv(DirectRLEnv):
         self.last_update_timestamp = self._robot._data._sim_timestamp
 
         ## logging
-        print("ee_linvel_fd: \n", self.ee_linvel_fd)
+        self.logging_dict["fingertip_pos"] = self.fingertip_midpoint_pos.clone().cpu().numpy()
+        self.logging_dict["fingertip_quat"] = self.fingertip_midpoint_quat.clone().cpu().numpy()
+
+        ## finding the pose for gen3_bracelet_link
+        brace_link_idx = self._robot.body_names.index("gen3_bracelet_link")
+        # print("brace_link_idx", brace_link_idx)
+        self.logging_dict["gen3_bracelet_link_pos"] = self._robot.data.body_pos_w[:, brace_link_idx].clone().cpu().numpy()
+        self.logging_dict["gen3_bracelet_link_quat"] = self._robot.data.body_quat_w[:, brace_link_idx].clone().cpu().numpy()
+        ## finding the pose for gen3_end_effector_link
+        end_effector_idx = self._robot.body_names.index("gen3_end_effector_link")
+        self.logging_dict["gen3_end_effector_link_pos"] = self._robot.data.body_pos_w[:, end_effector_idx].clone().cpu().numpy()
+        self.logging_dict["gen3_end_effector_link_quat"] = self._robot.data.body_quat_w[:, end_effector_idx].clone().cpu().numpy()
+        ## logging the ee linvel and angvel
+        self.logging_dict["ee_linvel"] = self.ee_linvel_fd.clone().cpu().numpy()
+        self.logging_dict["ee_angvel"] = self.ee_angvel_fd.clone().cpu().numpy()
+        print("======================== intermediate values computed ========================")
+        # print("ee linvel ", self.ee_linvel_fd[0].cpu().numpy())
+        # print("ee angvel ", self.ee_angvel_fd[0].cpu().numpy())
+        ## logging the joint pos and vel
+        self.logging_dict["joint_pos"] = self.joint_pos[:, 0:7].clone().cpu().numpy()
+        self.logging_dict["joint_vel"] = self.joint_vel[:, 0:7].clone().cpu().numpy()
 
     def _get_observations(self):
         """Get actor/critic inputs using asymmetric critic."""
         noisy_fixed_pos = self.fixed_pos_obs_frame + self.init_fixed_pos_obs_noise
+        if self.replica_changes_bool:
+            noisy_fixed_pos = self.fixed_pos_obs_frame
 
         prev_actions = self.actions.clone()
 
@@ -368,27 +584,6 @@ class FactoryEnv(DirectRLEnv):
         """Reset buffers."""
         self.ep_succeeded[env_ids] = 0
 
-    def _pre_physics_step(self, action):
-        """Apply policy actions with smoothing."""
-        self.logging_values['raw_action'] = action.clone().to(self.device).cpu().numpy()
-        
-        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(env_ids) > 0:
-            self._reset_buffers(env_ids)
-
-        self.logging_values['smoothed_action'] = self.actions.clone().to(self.device).cpu().numpy()
-        # self.actions = (
-        #     self.cfg.ctrl.ema_factor * action.clone().to(self.device) + (1 - self.cfg.ctrl.ema_factor) * self.actions
-        # )
-        
-        self.actions = action.clone().to(self.device)
-
-        # self._compute_intermediate_values(dt=self.physics_dt)
-        # fingertip_midpoint_pos_b, fingertip_midpoint_quat_b = self._compute_frame_pose(self.fingertip_midpoint_pos.clone(), self.fingertip_midpoint_quat.clone())
-    
-
-        # self.diff_ik_controller.set_command()
-    
     def close_gripper_in_place(self):
         """Keep gripper in current position as gripper closes."""
         actions = torch.zeros((self.num_envs, 6), device=self.device)
@@ -428,6 +623,27 @@ class FactoryEnv(DirectRLEnv):
 
         self.generate_ctrl_signals()
 
+    def _pre_physics_step(self, action):
+        """Apply policy actions with smoothing."""
+        self.logging_values['raw_action'] = action.clone().to(self.device).cpu().numpy()
+        
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if len(env_ids) > 0:
+            self._reset_buffers(env_ids)
+
+        self.logging_values['smoothed_action'] = self.actions.clone().to(self.device).cpu().numpy()
+        # self.actions = (
+        #     self.cfg.ctrl.ema_factor * action.clone().to(self.device) + (1 - self.cfg.ctrl.ema_factor) * self.actions
+        # )
+        
+        self.actions = action.clone().to(self.device)
+
+        self._compute_intermediate_values(dt=self.physics_dt)
+        # fingertip_midpoint_pos_b, fingertip_midpoint_quat_b = self._compute_frame_pose(self.fingertip_midpoint_pos.clone(), self.fingertip_midpoint_quat.clone())
+    
+
+        # self.diff_ik_controller.set_command()
+    
     def _apply_action(self):
         """Apply actions for policy as delta targets from current position."""
         # Get current yaw for success checking.
@@ -441,7 +657,6 @@ class FactoryEnv(DirectRLEnv):
 
         # Interpret actions as target pos displacements and set pos target
         pos_actions = self.actions[:, 0:3] * self.pos_threshold
-        
 
         self.logging_values["processed_action"] = pos_actions.clone().to(self.device).cpu().numpy()
 
@@ -452,9 +667,6 @@ class FactoryEnv(DirectRLEnv):
         rot_actions = rot_actions * self.rot_threshold
 
         self.ctrl_target_fingertip_midpoint_pos = self.fingertip_midpoint_pos + pos_actions
-        if self.env_tune_changes:
-            self.ctrl_target_fingertip_midpoint_pos = self.home_fingertip_midpoint_pos + pos_actions
-        
         # To speed up learning, never allow the policy to move more than 5cm away from the base.
         delta_pos = self.ctrl_target_fingertip_midpoint_pos - self.fixed_pos_action_frame
         pos_error_clipped = torch.clip(
@@ -497,7 +709,27 @@ class FactoryEnv(DirectRLEnv):
 
     def generate_ctrl_signals(self):
         """Get Jacobian. Set Franka DOF position targets (fingers) or DOF torques (arm)."""
+        self.joint_torque, self.applied_wrench = fc.compute_dof_torque(
+            cfg=self.cfg,
+            dof_pos=self.joint_pos,
+            dof_vel=self.joint_vel,  # _fd,
+            fingertip_midpoint_pos=self.fingertip_midpoint_pos,
+            fingertip_midpoint_quat=self.fingertip_midpoint_quat,
+            fingertip_midpoint_linvel=self.ee_linvel_fd,
+            fingertip_midpoint_angvel=self.ee_angvel_fd,
+            jacobian=self.fingertip_midpoint_jacobian,
+            arm_mass_matrix=self.arm_mass_matrix,
+            ctrl_target_fingertip_midpoint_pos=self.ctrl_target_fingertip_midpoint_pos,
+            ctrl_target_fingertip_midpoint_quat=self.ctrl_target_fingertip_midpoint_quat,
+            task_prop_gains=self.task_prop_gains,
+            task_deriv_gains=self.task_deriv_gains,
+            device=self.device,
+        )
 
+
+        ## self.fingertip_midpoint_pos frame 
+        ## self.ctrl_target_fingertip_midpoint_pos frame 
+        ## jacobian in the frame 
         fingertip_midpoint_pos_b, fingertip_midpoint_quat_b = self._compute_frame_pose(self.fingertip_midpoint_pos.clone(), self.fingertip_midpoint_quat.clone())
         ctrl_target_fingertip_midpoint_pos_b, ctrl_target_fingertip_midpoint_quat_b = self._compute_frame_pose(self.ctrl_target_fingertip_midpoint_pos.clone(), self.ctrl_target_fingertip_midpoint_quat.clone())
         self.target_joint_pose_ik = self.compute_ik_diff_dof_torque(
@@ -512,17 +744,27 @@ class FactoryEnv(DirectRLEnv):
             device=self.device
         )
 
+ 
         # set target for gripper joints to use physx's PD controller
         self.ctrl_target_joint_pos[:, 7:] = self.ctrl_target_gripper_dof_pos
         self.ctrl_target_joint_pos[:, :7] = self.target_joint_pose_ik[:,:7].clone()
 
+
         # print("gripper joint ids: ", self.gripper_joint_ids)
         self._robot.set_joint_position_target(self.ctrl_target_joint_pos[:,7:], self.gripper_joint_ids)
         self._robot.set_joint_position_target(self.target_joint_pose_ik[:,:7], joint_ids=range(7))  # only set for arm joints
+        # self._robot.set_joint_effort_target(self.joint_torque)
+        # self._robot.set_joint_effort_target(self.joint_torques_ik)
 
         self.applied_dof_torque = self._robot.data.applied_torque.clone()
-        self.computed_dof_torque = self._robot.data.computed_torque.clone()
         
+
+        self.logging_values["applied_dof_torque"] = self.applied_dof_torque[:,:].clone().to(self.device).cpu().numpy()
+        # self.logging_values["applied_wrench"] = self.applied_wrench.clone().to(self.device).cpu().numpy()
+        # self.logging_values["dof_torques"] = self.joint_torques_ik[:,:7].clone().to(self.device).cpu().numpy()
+        self.logging_values["current_joint_pos"] = self.joint_pos[:,:7].clone().to(self.device).cpu().numpy()
+        self.logging_values["target_joint_pos"] = self.target_joint_pose_ik[:,:7].clone().to(self.device).cpu().numpy()
+
     def _get_dones(self):
         """Update intermediate values used for rewards and observations."""
         self._compute_intermediate_values(dt=self.physics_dt)
@@ -539,10 +781,8 @@ class FactoryEnv(DirectRLEnv):
         is_centered = torch.where(xy_dist < 0.0025, torch.ones_like(curr_successes), torch.zeros_like(curr_successes))
         # Height threshold to target
         fixed_cfg = self.cfg_task.fixed_asset_cfg
-        if self.cfg_task.name == "peg_insert" or self.cfg_task.name == "gear_mesh":
+        if self.cfg_task.name == "peg_insert":
             height_threshold = fixed_cfg.height * success_threshold
-        elif self.cfg_task.name == "nut_thread":
-            height_threshold = fixed_cfg.thread_pitch * success_threshold
         else:
             raise NotImplementedError("Task not implemented")
         is_close_or_below = torch.where(
@@ -632,34 +872,22 @@ class FactoryEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
 
         self._set_assets_to_default_pose(env_ids)
-        
-        if self.env_tune_changes:
-            self._set_franka_to_default_pose(joints=self.reset_joints_real_hardware, env_ids=env_ids)
-            self.home_fingertip_midpoint_pos = self._robot.data.body_pos_w[:, self.fingertip_body_idx] - self.scene.env_origins
-            self.home_fingertip_midpoint_quat = self._robot.data.body_quat_w[:, self.fingertip_body_idx]
-            self._set_gains(self.default_gains)
-            self.close_gripper_in_place()
-            self.prev_actions = torch.zeros((self.num_envs, 6), device=self.device)
-            for _ in range(35):
-                self.step(torch.zeros((self.num_envs, 6), device=self.device))
-            
-        else:
+        if not self.replica_changes_bool:
             self._set_franka_to_default_pose(joints=self.cfg.ctrl.reset_joints, env_ids=env_ids)
-
+        else:
+            with open("/home/tih_auto_hpz4/Aditya/rl_hardware/src/scripts/robot_configurations/joint_states/h2.json", 'r') as f:
+                data = json.load(f)
+                joint_positions = data["joint_positions"]
+            self._set_franka_to_default_pose(joints=joint_positions, env_ids=env_ids)
+            
         self.step_sim_no_action()
 
         # self.randomize_initial_state(env_ids)
-        if not self.env_tune_changes:
-            if self.changes_bool:
-                self.randomize_near_goal_state(env_ids)
-                pass
-            else:
-                self.randomize_initial_state(env_ids)
-            
-        
-        self.home_fingertip_midpoint_pos = self._robot.data.body_pos_w[:, self.fingertip_body_idx] - self.scene.env_origins
-        self.home_fingertip_midpoint_quat = self._robot.data.body_quat_w[:, self.fingertip_body_idx]
-        
+        if self.changes_bool:
+            self.randomize_near_goal_state(env_ids)
+        else:
+            self.randomize_initial_state(env_ids)
+
     def _set_assets_to_default_pose(self, env_ids):
         """Move assets to default pose before randomization."""
         held_state = self._held_asset.data.default_root_state.clone()[env_ids]
@@ -719,11 +947,24 @@ class FactoryEnv(DirectRLEnv):
 
     def get_handheld_asset_relative_pose(self):
         """Get default relative pose between help asset and fingertip."""
-        
-        held_asset_relative_pos = torch.zeros_like(self.held_base_pos_local)
-        held_asset_relative_pos[:, 2] = self.cfg_task.held_asset_cfg.height
-        held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length - 0.01
+        if self.cfg_task.name == "peg_insert":
+            held_asset_relative_pos = torch.zeros_like(self.held_base_pos_local)
+            held_asset_relative_pos[:, 2] = self.cfg_task.held_asset_cfg.height
+            held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length - 0.01
+        else:
+            raise NotImplementedError("Task not implemented")
+
         held_asset_relative_quat = self.identity_quat
+        if self.cfg_task.name == "nut_thread":
+            # Rotate along z-axis of frame for default position.
+            initial_rot_deg = self.cfg_task.held_asset_rot_init
+            rot_yaw_euler = torch.tensor([0.0, 0.0, initial_rot_deg * np.pi / 180.0], device=self.device).repeat(
+                self.num_envs, 1
+            )
+            held_asset_relative_quat = torch_utils.quat_from_euler_xyz(
+                roll=rot_yaw_euler[:, 0], pitch=rot_yaw_euler[:, 1], yaw=rot_yaw_euler[:, 2]
+            )
+
         return held_asset_relative_pos, held_asset_relative_quat
 
     def _set_franka_to_default_pose(self, joints, env_ids):
@@ -757,37 +998,38 @@ class FactoryEnv(DirectRLEnv):
 
         # (1.) Randomize fixed asset pose.
         fixed_state = self._fixed_asset.data.default_root_state.clone()[env_ids]
-        # (1.a.) Position
-        rand_sample = torch.rand((len(env_ids), 3), dtype=torch.float32, device=self.device)
-        fixed_pos_init_rand = 2 * (rand_sample - 0.5)  # [-1, 1]
-        fixed_asset_init_pos_rand = torch.tensor(
-            self.cfg_task.fixed_asset_init_pos_noise, dtype=torch.float32, device=self.device
-        )
-        fixed_pos_init_rand = fixed_pos_init_rand @ torch.diag(fixed_asset_init_pos_rand)
-        fixed_state[:, 0:3] += fixed_pos_init_rand + self.scene.env_origins[env_ids]
-        # fixed_state[:, 0:3] += self.scene.env_origins[env_ids]
-        # (1.b.) Orientation
-        fixed_orn_init_yaw = np.deg2rad(self.cfg_task.fixed_asset_init_orn_deg)
-        fixed_orn_yaw_range = np.deg2rad(self.cfg_task.fixed_asset_init_orn_range_deg)
-        rand_sample = torch.rand((len(env_ids), 3), dtype=torch.float32, device=self.device)
-        fixed_orn_euler = fixed_orn_init_yaw + fixed_orn_yaw_range * rand_sample
-        fixed_orn_euler[:, 0:2] = 0.0  # Only change yaw.
-        fixed_orn_quat = torch_utils.quat_from_euler_xyz(
-            fixed_orn_euler[:, 0], fixed_orn_euler[:, 1], fixed_orn_euler[:, 2]
-        )
-        fixed_state[:, 3:7] = fixed_orn_quat
+
+        if not self.replica_changes_bool:
+            # (1.a.) Position
+            rand_sample = torch.rand((len(env_ids), 3), dtype=torch.float32, device=self.device)
+            fixed_pos_init_rand = 2 * (rand_sample - 0.5)  # [-1, 1]
+            fixed_asset_init_pos_rand = torch.tensor(
+                self.cfg_task.fixed_asset_init_pos_noise, dtype=torch.float32, device=self.device
+            )
+        
+            fixed_pos_init_rand = fixed_pos_init_rand @ torch.diag(fixed_asset_init_pos_rand)
+            fixed_state[:, 0:3] += fixed_pos_init_rand + self.scene.env_origins[env_ids]
+
+        else:
+            # reading the fixed asset pos from the json file
+            with open("/home/tih_auto_hpz4/Aditya/rl_hardware/src/scripts/robot_configurations/joint_states/f2.json", 'r') as f:
+                data = json.load(f)
+                hole_pos = data["eef_pos"]
+            hole_pos = torch.tensor(hole_pos, dtype=torch.float32, device=self.device)
+            fixed_state[:, 0:3] = hole_pos - torch.tensor([0.0, 0.0, self.cfg_task.fixed_asset_cfg.height], dtype=torch.float32, device=self.device)
+            print("fixed asset pos set to: ", fixed_state[:,0:3])
+
+            fixed_state[:, 0:3] += self.scene.env_origins[env_ids]
+
+        ### -------------------------------------------------------------
+
+        
         # (1.c.) Velocity
         fixed_state[:, 7:] = 0.0  # vel
-
-
         self.fixed_state = fixed_state.clone()  ## fixed state has coords of hole_base wrt world origin   
-        # print("fixed_asset_pos \n ", fixed_state[:,:3])
-        # (1.d.) Update values.
+        
 
-        if not self.changes_bool:
-            self._fixed_asset.write_root_pose_to_sim(fixed_state[:, 0:7], env_ids=env_ids)
-            self._fixed_asset.write_root_velocity_to_sim(fixed_state[:, 7:], env_ids=env_ids)
-            self._fixed_asset.reset()
+        # (1.d.) Update values.
 
         # (1.e.) Noisy position observation.
         fixed_asset_pos_noise = torch.randn((len(env_ids), 3), dtype=torch.float32, device=self.device)
@@ -804,11 +1046,7 @@ class FactoryEnv(DirectRLEnv):
         fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height
 
         ## needs changes here if fixed asset is moved
-
-        if self.changes_bool:
-            fixed_pos = self.fixed_state[:,:3] - self.scene.env_origins[env_ids]
-        else:
-            fixed_pos = self.fixed_pos
+        fixed_pos = self.fixed_state[:,:3] - self.scene.env_origins[env_ids]
 
         _, fixed_tip_pos = torch_utils.tf_combine(
             self.fixed_quat, fixed_pos, self.identity_quat, fixed_tip_pos_local
@@ -826,44 +1064,39 @@ class FactoryEnv(DirectRLEnv):
         while True:
             n_bad = bad_envs.shape[0]
 
-            above_fixed_pos = fixed_tip_pos.clone()
-            above_fixed_pos[:, 2] += self.cfg_task.hand_init_pos[2]
+                
+            custom_hand_pos = self.custom_hand_pos_randomization(bad_envs, world_coords=False, fixed_asset_pos=fixed_pos) ## dim = (n_bad, 3)
+            
+            print("custom_hand_pos: ", custom_hand_pos)
+            if self.replica_changes_bool:
+                ## reading the eef pos from the json file
+                with open("/home/tih_auto_hpz4/Aditya/rl_hardware/src/scripts/robot_configurations/joint_states/h2.json", 'r') as f:
+                    data = json.load(f)
+                    eef_pos = data["eef_pos"]
+                eef_pos = torch.tensor(eef_pos, dtype=torch.float32, device=self.device).unsqueeze(0).repeat(n_bad,1) # + env origin[bad_envs]
+                print("eef pos set to: ", eef_pos)
 
-            rand_sample = torch.rand((n_bad, 3), dtype=torch.float32, device=self.device)
-            above_fixed_pos_rand = 2 * (rand_sample - 0.5)  # [-1, 1]
-            # hand_init_pos_rand = torch.tensor(self.cfg_task.hand_init_pos_noise, device=self.device)
-            hand_init_pos_rand = torch.tensor([0.0, 0.0, 0.0], device=self.device)
-            above_fixed_pos_rand = above_fixed_pos_rand @ torch.diag(hand_init_pos_rand)
-            above_fixed_pos[bad_envs] += above_fixed_pos_rand
-            ## above_fixed_pos has coords of randomized inital eef position wrt envs origin
+                custom_hand_pos = eef_pos
+            
+            custom_hand_pos = custom_hand_pos.float()
+            above_fixed_pos = custom_hand_pos.clone()
 
-            if self.changes_bool:
-                custom_hand_pos = self.custom_hand_pos_randomization(bad_envs, world_coords=False, fixed_asset_pos=fixed_pos) ## dim = (n_bad, 3)
-                custom_hand_pos = custom_hand_pos.float()
-
-                ## mask1 to choose between custom randomization vs default randomization
-                ### this selection works i have checked it in segment indepenedetly 
-                mask1 = torch.rand(n_bad, device=self.device) < 0.5
-                mask1 = mask1[:, None]
-
-                above_fixed_pos[bad_envs] = torch.where(mask1, custom_hand_pos, above_fixed_pos[bad_envs])
-                above_fixed_pos = above_fixed_pos.float()
-
-
+            
             # (b) get random orientation facing down
             hand_down_euler = (
                 torch.tensor(self.cfg_task.hand_init_orn, device=self.device).unsqueeze(0).repeat(n_bad, 1)
             )
-
-            rand_sample = torch.rand((n_bad, 3), dtype=torch.float32, device=self.device)
-            above_fixed_orn_noise = 2 * (rand_sample - 0.5)  # [-1, 1]
-            hand_init_orn_rand = torch.tensor(self.cfg_task.hand_init_orn_noise, device=self.device)
-            above_fixed_orn_noise = above_fixed_orn_noise @ torch.diag(hand_init_orn_rand)
-            hand_down_euler += above_fixed_orn_noise
-            self.hand_down_euler[bad_envs, ...] = hand_down_euler
             hand_down_quat[bad_envs, :] = torch_utils.quat_from_euler_xyz(
                 roll=hand_down_euler[:, 0], pitch=hand_down_euler[:, 1], yaw=hand_down_euler[:, 2]
             )
+
+            # if self.replica_changes_bool:
+            #     with open("/home/tih_auto_hpz4/Aditya/rl_hardware/src/scripts/robot_configurations/joint_states/h2.json", 'r') as f:
+            #         data = json.load(f)
+            #         eef_orn = data["eef_orientation"]
+            #     eef_orn = torch.tensor(eef_orn, dtype=torch.float32, device=self.device).unsqueeze(0).repeat(n_bad,1)
+            #     hand_down_quat[bad_envs, :] = eef_orn
+            
 
             # (c) iterative IK Method
             self.ctrl_target_fingertip_midpoint_pos[bad_envs, ...] = above_fixed_pos[bad_envs, ...]
@@ -879,23 +1112,25 @@ class FactoryEnv(DirectRLEnv):
             print("ik_attempt ", ik_attempt)
             if bad_envs.shape[0] == 0:
                 break
+            
+            ## reading joints from json file 
+            if self.replica_changes_bool:
+                with open("/home/tih_auto_hpz4/Aditya/rl_hardware/src/scripts/robot_configurations/joint_states/h2.json", 'r') as f:
+                    data = json.load(f)
+                    joint_positions = data["joint_positions"]
+                self._set_franka_to_default_pose(
+                    joints = joint_positions, env_ids=bad_envs
+                )
 
-            self._set_franka_to_default_pose(
-                joints = [-0.0390, 0.8417, -0.0531, 2.2894, -0.0744, -1.5667, -1.5310], env_ids=bad_envs
-                # joints=[0.00871, -0.10368, -0.00794, -1.49139, -0.00083, 1.38774, 0.0], env_ids=bad_envs
-            )
+            else:    
+                self._set_franka_to_default_pose(
+                    joints = [-0.0390, 0.8417, -0.0531, 2.2894, -0.0744, -1.5667, -1.5310], env_ids=bad_envs
+                    # joints=[0.00871, -0.10368, -0.00794, -1.49139, -0.00083, 1.38774, 0.0], env_ids=bad_envs
+                )
 
             ik_attempt += 1
-            
 
-        ## enable collisions here
-        # prim_path = self._fixed_asset.cfg.prim_path
-        # modify_collision_properties(prim_path, CollisionPropertiesCfg(collision_enabled=True))
-
-        # for i in range(self.num_envs):
-        #     prim_path = f"/World/envs/env_{i}/FixedAsset"
-        #     modify_collision_properties(prim_path, CollisionPropertiesCfg(collision_enabled=True))
-
+        self.fixed_state[:, 0:3] += torch.tensor([0.002, 0.002, 5], device=self.device)
         self._fixed_asset.write_root_pose_to_sim(self.fixed_state[:, 0:7], env_ids=env_ids)
         self._fixed_asset.write_root_velocity_to_sim(self.fixed_state[:, 7:], env_ids=env_ids)
         self._fixed_asset.reset()
@@ -971,11 +1206,18 @@ class FactoryEnv(DirectRLEnv):
         # Back out what actions should be for initial state.
         # Relative position to bolt tip.
         self.fixed_pos_action_frame[:] = self.fixed_pos_obs_frame + self.init_fixed_pos_obs_noise
+        if self.replica_changes_bool:
+            self.fixed_pos_action_frame[:] = self.fixed_pos_obs_frame
+        
 
         pos_actions = self.fingertip_midpoint_pos - self.fixed_pos_action_frame
+            
         pos_action_bounds = torch.tensor(self.cfg.ctrl.pos_action_bounds, device=self.device)
         pos_actions = pos_actions @ torch.diag(1.0 / pos_action_bounds)
         self.actions[:, 0:3] = self.prev_actions[:, 0:3] = pos_actions
+        
+        if self.replica_changes_bool:
+            self.actions[:, 0:3] = self.prev_actions[:, 0:3] = pos_actions*0.0
 
         # Relative yaw to bolt.
         unrot_180_euler = torch.tensor([-np.pi, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
@@ -1222,8 +1464,9 @@ class FactoryEnv(DirectRLEnv):
         # print("i am here")
         return target_joint_pos
 
-    def enable_env_tune_changes(self, bool_value: bool):
-        self.env_tune_changes = bool_value
+    def enable_replica_changes(self, enable: bool):
+        self.replica_changes_bool = enable
+        print(f"Replica changes enabled: {self.replica_changes_bool}")
 
 class RobotEnvLogging(FactoryEnv):
     def __init__(self, cfg:FactoryTaskPegInsertCfg, render_mode: str | None = None, log_file=None, **kwargs):
@@ -1292,9 +1535,9 @@ class RobotEnvLogging(FactoryEnv):
         if recording_state:
             if exp_name is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                self.log_dir = log_dir = f"scripts/peg_hole_2/log_profiling/{timestamp}"
+                self.log_dir = log_dir = f"scripts/peg_hole_2/log_profiling_2/{timestamp}"
             else:
-                log_dir = f"scripts/peg_hole_2/log_profiling/{exp_name}"
+                log_dir = f"scripts/peg_hole_2/log_profiling_2/{exp_name}"
             os.makedirs(log_dir, exist_ok=True)
             log_file = f"{log_dir}/rl_step_data.csv"
 
@@ -1320,3 +1563,281 @@ class RobotEnvLogging(FactoryEnv):
         self.rl_step_count = 0
         self.recording_state = recording_state
 
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.distributions.normal import Normal
+
+class torchRunningnormalizer(nn.Module):
+    def __init__(self, insize, epsilon=1e-5):
+        super().__init__()
+        self.insize = insize
+        self.epsilon = epsilon
+        
+        in_size = insize
+        self.register_buffer("running_mean", torch.zeros(in_size, dtype = torch.float64))
+        self.register_buffer("running_var", torch.ones(in_size, dtype = torch.float64))
+        self.register_buffer("count", torch.ones((), dtype = torch.float64))
+
+    def _update_mean_var_count_from_moments(self, mean, var, count, batch_mean, batch_var, batch_count):
+        delta = batch_mean - mean
+        tot_count = count + batch_count
+
+        new_mean = mean + delta * batch_count / tot_count
+        m_a = var * count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + delta**2 * count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+        return new_mean, new_var, new_count
+
+    def forward(self, input, denorm = False, mask=None):
+
+        if self.training:
+            mean = input.mean(0)
+            var = input.var(0)
+
+            self.running_mean, self.running_var, self.count = self._update_mean_var_count_from_moments(self.running_mean, self.running_var, self.count, 
+                                                    mean, var, input.size()[0] )
+
+
+        current_mean = self.running_mean
+        current_var = self.running_var
+
+        if denorm:
+            y = torch.clamp(input, min=-5.0, max=5.0)
+            y = torch.sqrt(current_var.float() + self.epsilon)*y + current_mean.float()
+        else:
+            y = (input - current_mean.float()) / torch.sqrt(current_var.float() + self.epsilon)
+            y = torch.clamp(y, min=-5.0, max=5.0)  
+
+        return y         
+
+class LSTMwithDones(nn.Module):
+    """ lstm that handles done flags for rl games"""
+
+    def __init__(self, input_size, hidden_size, num_layers=1):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=False)
+        self.hidden_size = hidden_size
+        self.input_size = input_size
+        # self.device = next(self.parameters()).device 
+            
+    def forward(self, inputs, lstm_state, done):
+        """
+        lstm_state : 2--> cell state and hidden state (num_layers, batch_size, hidden_size)
+        done : (seq_len, batch_size)
+        input: (seq_len, batch_size, input_size)
+        """
+        # done = done.to(dtype=inputs.dtype, device= self.device)
+        new_hidden = []
+
+        for x, d in zip(inputs, done):
+            # print("x shape:", x.shape, "d shape:", d.shape)
+            # print("d dtype:", d.dtype, "d device:", d.device, "d min/max:", d.min().item(), d.max().item())
+            # assert torch.all((d == 0) | (d == 1)), f"d contains values other than 0 or 1: {d}"
+            h, lstm_state = self.lstm(
+                x.unsqueeze(0), ## shape: (1, B, input_size)
+                (
+                    (1.0 - d).view(1, -1, 1) * lstm_state[0],
+                    (1.0 - d).view(1, -1, 1) * lstm_state[1],
+                ),
+            )
+            new_hidden += [h] ## h shape: (1, B, 1024=> hidden_size)
+
+        new_hidden = torch.flatten(torch.cat(new_hidden), 0, 1) ## shape: (T × B, hidden_size)
+        return new_hidden, lstm_state
+
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+class Actor(nn.Module):
+    def __init__(self, hidden_size = 1024, num_layers = 2):
+        super().__init__()
+        self.lstm = LSTMwithDones(19, hidden_size, num_layers)
+
+        self.layer_norm = nn.LayerNorm(hidden_size)
+        
+        self.mlp_after_lstm = nn.Sequential(
+            layer_init(nn.Linear(hidden_size, 512)),
+            nn.ELU(),  # From RL-Games config: activation: elu
+            layer_init(nn.Linear(512, 128)),
+            nn.ELU(),
+            layer_init(nn.Linear(128, 64)),
+            nn.ELU(),
+        )
+
+        self.actor_mean = layer_init(nn.Linear(64, 6), std=0.01)
+        self.actor_logstd = layer_init(nn.Linear(64, 6), std=0.01)
+
+        for name, param in self.lstm.named_parameters():
+            if "bias" in name:
+                nn.init.constant_(param, 0)
+            elif "weight" in name:
+                nn.init.orthogonal_(param, 1.0)    
+
+        self.LOG_STD_MIN = -20
+        self.LOG_STD_MAX = 2    
+
+    def get_states(self, x, lstm_state, done):
+        ## x shape: (seq_len × B, total_obs_space["policy"].shape[-1])
+        ## lstm_state shape: 2 (num_layers, B, hidden_size)
+        ## done shape: (seq_len × B,)
+
+        batch_size = lstm_state[0].shape[1]  ## batch_size = B = num_envs
+        
+        x = x.reshape((-1, batch_size, 19)) ## shape: (seq_len, B, input_size=total_obs_space["policy"].shape[-1])
+
+        done = done.reshape((-1, batch_size)) ## shape: (seq_len, B)
+        
+        new_hidden, new_lstm_state = self.lstm(x, lstm_state, done)
+
+        ## new_hidden shape: (seq_len × B, hidden_size)
+        ## new_lstm_state shape: 2 (num_layers, B, hidden_size)
+
+        return new_hidden, new_lstm_state 
+        
+    def get_action(self, x, lstm_state, done, action=None):
+        """
+        x : (seq_len * B, total_obs_space["policy"].shape[-1])
+        lstm_state : 2 (num_layers, B, hidden_size)
+        done : (seq_len * B,)
+        action : (seq_len * B, ) or None if we want to sample an action
+
+        """
+
+        hidden, new_lstm_state = self.get_states(x, lstm_state, done) 
+        hidden = self.layer_norm(hidden)
+        
+        ## hidden shape: (seq_len × B, hidden_size)
+
+        mlp_output = self.mlp_after_lstm(hidden)
+        ## mlp_output shape: (seq_len × B, 64)
+
+        action_mean = self.actor_mean(mlp_output)
+        ## action_mean shape: (seq_len × B, action_space.shape[-1])
+
+        action_logstd = self.actor_logstd(mlp_output)
+        action_logstd = torch.clamp(action_logstd, self.LOG_STD_MIN, self.LOG_STD_MAX)
+        std = action_logstd.exp()
+        ## std shape: (seq_len × B, action_space.shape[-1])
+
+        dist = Normal(action_mean, std)
+        if action is None:
+            action = dist.sample()
+        
+        a_mu = action_mean.detach().clone()
+        a_std = std.detach().clone()
+        return action, dist.log_prob(action).sum(-1), dist.entropy().sum(-1), new_lstm_state, a_mu, a_std
+
+class critic(nn.Module):
+    def __init__(self, hidden_size = 1024, num_layers = 2):
+        super().__init__()
+        self.lstm = LSTMwithDones(43, hidden_size, num_layers)
+
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+        self.mlp_after_lstm = nn.Sequential(
+            layer_init(nn.Linear(hidden_size, 512)),
+            nn.ELU(),
+            layer_init(nn.Linear(512, 128)),
+            nn.ELU(),
+            layer_init(nn.Linear(128, 64)),
+            nn.ELU(),
+        )
+        
+        self.critic_value = layer_init(nn.Linear(64, 1), std=1.0)
+
+        for name, param in self.lstm.named_parameters():
+            if "bias" in name:
+                nn.init.constant_(param, 0)
+            elif "weight" in name:
+                nn.init.orthogonal_(param, 1.0)
+       
+    def get_states(self, x, lstm_state, done):
+        ## x shape: (seq_len × B, total_obs_space["critic"].shape[-1])
+        ## lstm_state shape: 2 (num_layers, B, hidden_size)
+        ## done shape: (seq_len × B,)
+
+        batch_size = lstm_state[0].shape[1]  ## batch_size = B = num_envs
+
+        x = x.reshape((-1, batch_size, 43)) 
+        ## x shape: (seq_len, B, input_size=total_obs_space["critic"].shape[-1])
+
+        done = done.reshape((-1, batch_size)) ## shape: (seq_len, B)
+        
+        new_hidden, new_lstm_state = self.lstm(x, lstm_state, done)
+
+        ## new_hidden shape: (seq_len × B, hidden_size)
+        ## new_lstm_state shape: 2 (num_layers, B, hidden_size)
+
+        return new_hidden, new_lstm_state 
+
+    def get_value(self, x, lstm_state, done):
+        """
+        x : (seq_len * B, total_obs_space["critic"].shape[-1])
+        lstm_state : 2 (num_layers, B, hidden_size)
+        done : (seq_len * B,)
+        
+        """
+        hidden, new_lstm_state = self.get_states(x, lstm_state, done)
+        hidden = self.layer_norm(hidden)
+        ## hidden shape: (seq_len × B, hidden_size)
+
+        mlp_output = self.mlp_after_lstm(hidden)
+        ## mlp_output shape: (seq_len × B, 64)
+
+        value = self.critic_value(mlp_output)
+        ## value shape: (seq_len × B, 1)
+
+        return value, new_lstm_state
+        
+class Agent(nn.Module):
+    def __init__(self, actor_lr=None, critic_lr=None, norm_value = True, value_size = 1, eval=False):
+        super().__init__()
+
+        self.hidden_size = 1024
+        self.num_layers = 2
+
+
+        self.actor = Actor(self.hidden_size, self.num_layers)
+        self.critic = critic(self.hidden_size, self.num_layers)
+
+        if not eval:
+            self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr, eps=1e-5)
+            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr, eps=1e-5)
+
+        self.norm_value = norm_value
+        if norm_value:
+            self.critic_normalizer = torchRunningnormalizer(value_size)
+
+    def get_action(self, x, lstm_state, done, action=None):
+
+        x = x["policy"]
+        action, log_prob, entropy, new_lstm_state, a_mu, a_std = self.actor.get_action(x, lstm_state, done, action)
+
+        return action, log_prob, entropy, new_lstm_state, a_mu, a_std
+    
+    def get_value(self, x, lstm_state, done, denorm = True, update_running_mean = False):
+
+        x = x["critic"]
+        value, new_lstm_state = self.critic.get_value(x, lstm_state, done)
+
+        if denorm:
+            if self.norm_value:
+                if update_running_mean:
+                    self.critic_normalizer.train()
+                    value = self.critic_normalizer(value, denorm = True)
+                    self.critic_normalizer.eval()
+                
+                else:
+                    self.critic_normalizer.eval()
+                    value = self.critic_normalizer(value, denorm = True)
+            
+                
+        return value, new_lstm_state    

@@ -6,7 +6,7 @@ import glob
 import os
 import numpy as np
 
-PARENT_LOG_DIR = "scripts/peg_hole_2/log_profiling"
+PARENT_LOG_DIR = "scripts/peg_hole_2/log_profiling_2"
 VIEWER_ADDR = "grpc://127.0.0.1:9876"
 
 rr.init("robot_profiling", spawn=True)
@@ -163,6 +163,7 @@ for folder in glob.glob(os.path.join(PARENT_LOG_DIR, "*")):
                     mean_cluster_2 = np.mean(cluster_2, axis=0)
                     var_cluster_1 = np.var(cluster_1, axis=0)
                     var_cluster_2 = np.var(cluster_2, axis=0)
+                    print("----------------------------------")
                     print("file :", folder)
                     print(f"Mean Cluster 1: {mean_cluster_1}, Variance Cluster 1: {var_cluster_1}")
                     print(f"Mean Cluster 2: {mean_cluster_2}, Variance Cluster 2: {var_cluster_2}")

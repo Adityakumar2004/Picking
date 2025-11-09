@@ -1,0 +1,11 @@
+- i want to visualize the current joint positions and target joint positions in rerun
+- structure I wish to follow:
+-- a directory named 0_joint_rviz_1 means 0th joint 1st experiment done on rviz similarly we can have 0_joint_real_1, 0_joint_isaac_1
+-- each such directory will have a step_data.csv file "scripts/peg_hole_2/joint_profiling_logs/0_joint_rviz_1/step_data.csv" and a metadat.json file "scripts/peg_hole_2/joint_profiling_logs/0_joint_rviz_1/metadata.json"
+-- i want to itereate through the folder joint_profiling_logs that has subfolders named similar to {joint_idx}_joint_rviz/real/isaac_{exp_no} and keep logging the data to the rerun visualization 
+- i want to visualize the rerun data as follows:
+-- the entity path for 0_joint_rviz or isaac or real_1 is /0/rviz (or) isaac (or) real_1/current
+-- the entity path for the desired joint pose taken from the metadata.json file is /0/rviz (or) isaac (or) real_1/desired
+- i am attaching a reference code that does something similar you can go through its just for reference "scripts/analysis/profiling_viz.py" you dont need to follow it exactly
+- also i want to visualize everything in degrees so convert the radians to degrees (the data stored i the csv file is in degress)
+- since the desired joint position is constant (so only one value for all the steps) for a particular experiment i want to log it smay be by doing something like this columns=rr.Scalars.columns(scalars=np.full_like(steps, -desired_joint_angle, dtype=np.float32))

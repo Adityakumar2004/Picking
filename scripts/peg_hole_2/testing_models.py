@@ -80,8 +80,8 @@ def make_env(video_folder:str | None =None, output_type: str = "numpy"):
 
 def main():
     exp_name = "diff_ik_low_T_high_bounds"
-    file_path_csv = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "csv_files", f"{exp_name}.csv")
-    video_folder = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "videos", f"{exp_name}_smoothened_2")
+    file_path_csv = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "csv_files", f"{exp_name}_changed_env.csv")
+    video_folder = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "videos", f"{exp_name}_changed_env")
     checkpoint_folder = os.path.join("scripts","peg_hole_2" ,"logs","ppo_factory", "checkpoints")
     checkpoint_path = os.path.join(checkpoint_folder, f"{exp_name}.pt")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
