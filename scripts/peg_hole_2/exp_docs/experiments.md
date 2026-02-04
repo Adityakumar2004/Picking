@@ -1,21 +1,20 @@
 # Experiments Log
 
-## Experiment 1-2:
+## Experiment 2-3:
 
 **Script:** [rl_osc_delta_current.py](../rl_osc_delta_current.py)
 
 **Description:**
 
-- decreased the pos_action_bounds from exp1 --> [0.09, 0.09, 0.08] to exp2 --> [0.02, 0.02, 0.02]
-- exp 1 grey color
-- exp2 red color 
-- yellow is diff ik env
+- decreased the episode_length_s from exp2 --> 20s to exp3 --> 10s
+- exp2 red color
+- exp1 purple color
 
 
 **Training Graph:**
 
 ![Training Graph](./image.png)
 
-**inference video**
-![video](./cam0_video.mp4)
+<!-- **inference video**
+![video](./cam0_video.mp4) -->
 ---
