@@ -16,4 +16,6 @@
 
 ![Training Graph](./image.png)
 
+**inference video**
+![video](./cam0_video.mp4)
 ---
