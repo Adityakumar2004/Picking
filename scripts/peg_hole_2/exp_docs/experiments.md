@@ -12,6 +12,9 @@
 - [0.05, 0.05, 0.05] --> [0.07, 0.07, 0.07]
 
 
+(cons peg position not held correctly so the success is not happening)
+(peg is titled i tried to push using keyboard it didnt work )
+
 **Training Graph:**
 
 ![Training Graph](./image.png)
