@@ -81,7 +81,7 @@ MAX_WRENCH_TORQUE = 20.0
 class CtrlCfg:
     ema_factor = 0.2
 
-    pos_action_bounds = [0.05, 0.05, 0.05]
+    pos_action_bounds = [0.07, 0.07, 0.07]#[0.05, 0.05, 0.05]
     rot_action_bounds = [1.0, 1.0, 1.0]
 
     pos_action_threshold = [0.02, 0.02, 0.02] # [1.0, 1.0, 1.0]#
@@ -895,7 +895,7 @@ class FactoryEnv(DirectRLEnv):
         if self.cfg_task.name == "peg_insert":
             held_asset_relative_pos = torch.zeros_like(self.held_base_pos_local)
             held_asset_relative_pos[:, 2] = self.cfg_task.held_asset_cfg.height
-            held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length - 0.016
+            held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length - 0.008 ## 0.005 #0.011--max
         else:
             raise NotImplementedError("Task not implemented")
 
