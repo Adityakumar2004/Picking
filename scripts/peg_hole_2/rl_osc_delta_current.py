@@ -81,7 +81,7 @@ MAX_WRENCH_TORQUE = 20.0
 class CtrlCfg:
     ema_factor = 0.2
 
-    pos_action_bounds = [0.02, 0.02, 0.02]
+    pos_action_bounds = [0.05, 0.05, 0.05]
     rot_action_bounds = [1.0, 1.0, 1.0]
 
     pos_action_threshold = [0.02, 0.02, 0.02] # [1.0, 1.0, 1.0]#
@@ -90,12 +90,12 @@ class CtrlCfg:
     reset_joints = [1.5178e-03, -1.9651e-01, -1.4364e-03, -1.9761, -2.7717e-04, 1.7796, 7.8556e-01]
     reset_task_prop_gains = [300, 300, 300, 20, 20, 20]
     reset_rot_deriv_scale = 10.0
-    default_task_prop_gains = [300, 300, 300, 90, 90, 90]#[100, 100, 100, 30, 30, 30]
+    default_task_prop_gains = [100, 100, 100, 30, 30, 30]#[300, 300, 300, 90, 90, 90]
 
     # Null space parameters.
     default_dof_pos_tensor = [-1.3003, -0.4015, 1.1791, -2.1493, 0.4001, 1.9425, 0.4754]
     kp_null = 10.0
-    kd_null = 100.0#6.3246
+    kd_null = 6.3246 #100.0#6.3246
 
     # Gravity compensation noise (simulates imperfect gravity comp on real hardware)
     # Per-joint configuration: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
@@ -135,7 +135,7 @@ class FactoryEnvCfg(DirectRLEnvCfg):
     obs_rand: ObsRandCfg = ObsRandCfg()
     ctrl: CtrlCfg = CtrlCfg()
 
-    episode_length_s = 10.0  # Probably need to override.
+    episode_length_s = 20.0  # Probably need to override.
     sim: SimulationCfg = SimulationCfg(
         device="cuda:0",
         dt=1 / 120,
