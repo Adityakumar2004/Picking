@@ -19,6 +19,13 @@ simulation_app = app_launcher.app
 
 ### -----------------------------------------------------------
 import os
+import sys
+
+# Add IsaacLab root directory to Python path so 'scripts.peg_hole_2' can be imported
+isaaclab_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if isaaclab_root not in sys.path:
+    sys.path.insert(0, isaaclab_root)
+
 import random
 import time
 from dataclasses import dataclass
@@ -60,7 +67,7 @@ class Args:
     ## this is changed in the code runtime: total_timesteps = num_updates * batch_size
     """total timesteps of the experiments"""
     
-    num_updates: int = 200 # ----------------------------
+    num_updates: int = 300#200 # ----------------------------
     """the number of updates for the entire loop on top of the env roll out (num_steps), update_epochs"""
     ## this is the user input 
 
@@ -120,13 +127,22 @@ def make_env(video_folder:str | None =None, output_type: str = "numpy"):
     id_name = "peg_insert-v0-uw"
     gym.register(
         id=id_name,
-        entry_point="scripts.peg_hole_2.factory_env_diff_ik:FactoryEnv",
+        entry_point="scripts.peg_hole_2.rl_osc_delta_current:FactoryEnv",
         disable_env_checker=True,
         kwargs={
-            "env_cfg_entry_point":"scripts.peg_hole_2.factory_env_cfg_diff_ik:FactoryTaskPegInsertCfg",
+            "env_cfg_entry_point":"scripts.peg_hole_2.rl_osc_delta_current:FactoryTaskPegInsertCfg",
         },
     )
 
+    # gym.register(
+    #     id=id_name,
+    #     entry_point="scripts.peg_hole_2.factory_env_diff_ik:FactoryEnv",
+    #     disable_env_checker=True,
+    #     kwargs={
+    #         "env_cfg_entry_point":"scripts.peg_hole_2.factory_env_cfg_diff_ik:FactoryTaskPegInsertCfg",
+    #     },
+    # )
+    
     env_cfg = parse_env_cfg(
         id_name,
         num_envs=args_cli.num_envs
@@ -144,10 +160,11 @@ if __name__ == "__main__":
 
     ## start the env 
     # video_folder = os.path.join("custom_scripts", "logs", "ppo_factory", "videos_lstm_1")
-    exp_name = "diff_ik_low_T_high_bounds"
+    exp_name = "rl_osc_delta_current_2"
     checkpoint_folder = os.path.join("scripts","peg_hole_2" ,"logs", "ppo_factory", "checkpoints")
     os.makedirs(checkpoint_folder, exist_ok=True)
-    checkpoint_path = os.path.join(checkpoint_folder, f"{exp_name}.pt")
+    checkpoint_path = os.path.join(checkpoint_folder, f"{exp_name}.pt")  # latest model (saved every iteration)
+    best_checkpoint_path = os.path.join(checkpoint_folder, f"{exp_name}_best.pt")
     
     args = Args()
     device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
@@ -200,11 +217,13 @@ if __name__ == "__main__":
     # Add success rate tracking
     all_success_rates = []
     all_success_times = []
+    best_avg_return = -float('inf')
+    best_avg_success_rate = -float('inf')
     start_update = 1
     if args_cli.resume:
         import os
         if os.path.exists(checkpoint_path):
-            checkpoint = torch.load(checkpoint_path, map_location=device)
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             agent.load_state_dict(checkpoint["agent"])
             agent.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
             agent.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
@@ -228,6 +247,8 @@ if __name__ == "__main__":
             all_lengths = checkpoint.get("all_lengths", [])
             all_success_rates = checkpoint.get("all_success_rates", [])
             all_success_times = checkpoint.get("all_success_times", [])
+            best_avg_return = checkpoint.get("best_avg_return", -float('inf'))
+            best_avg_success_rate = checkpoint.get("best_avg_success_rate", -float('inf'))
             print(f"[INFO] Resumed training from checkpoint at update {start_update-1}, global_step {global_step}.")
         else:
             print(f"[WARNING] --resume flag set but checkpoint not found at {checkpoint_path}. Starting from scratch.")
@@ -598,6 +619,47 @@ if __name__ == "__main__":
                 }, step=global_step)
             print(f"Iteration/update {update}/{num_updates}, Global Step: {global_step}, Avg Return: {avg_return:.2f}, Avg Length: {avg_length:.1f}, Success Rate: {avg_success_rate:.3f}, Current Success: {current_success_rate:.3f}, Time: {time.time() - start_time:.2f}s")
 
+            # Save best model if:
+            # 1. Success rate improved by >= 0.05, OR
+            # 2. Success rate is within 0.02 AND reward improved
+            success_improved = avg_success_rate > best_avg_success_rate + 0.05
+            similar_success_better_reward = (
+                abs(avg_success_rate - best_avg_success_rate) <= 0.02
+                and avg_return > best_avg_return
+            )
+
+            if success_improved or similar_success_better_reward:
+                best_avg_return = avg_return
+                best_avg_success_rate = avg_success_rate
+                best_checkpoint = {
+                    "agent": agent.state_dict(),
+                    "actor_optimizer": agent.actor_optimizer.state_dict(),
+                    "critic_optimizer": agent.critic_optimizer.state_dict(),
+                    "critic_normalizer": agent.critic_normalizer.state_dict(),
+                    "actor_learning_rate": agent.actor_optimizer.param_groups[0]["lr"],
+                    "critic_learning_rate": agent.critic_optimizer.param_groups[0]["lr"],
+                    "global_step": global_step,
+                    "update": update,
+                    "all_returns": all_returns,
+                    "all_lengths": all_lengths,
+                    "all_success_rates": all_success_rates,
+                    "all_success_times": all_success_times,
+                    "best_avg_return": best_avg_return,
+                    "best_avg_success_rate": best_avg_success_rate,
+                }
+                if hasattr(envs, 'normalizers'):
+                    best_normalizer_state = {}
+                    for k, norm in envs.normalizers.items():
+                        best_normalizer_state[k] = {
+                            'mean': norm.mean,
+                            'var': norm.var,
+                            'count': norm.count,
+                            'clip_range': norm.clip_range,
+                        }
+                    best_checkpoint['normalizer_state'] = best_normalizer_state
+                torch.save(best_checkpoint, best_checkpoint_path)
+                print(f"[INFO] New best model saved with avg_return: {best_avg_return:.2f}, avg_success_rate: {best_avg_success_rate:.3f}")
+
         # Save checkpoint with all necessary information for resuming training
         checkpoint = {
             "agent": agent.state_dict(),
@@ -612,6 +674,8 @@ if __name__ == "__main__":
             "all_lengths": all_lengths,
             "all_success_rates": all_success_rates,
             "all_success_times": all_success_times,
+            "best_avg_return": best_avg_return,
+            "best_avg_success_rate": best_avg_success_rate,
             # Add any other stateful variables you want to resume
         }
 
