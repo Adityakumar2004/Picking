@@ -453,8 +453,8 @@ def policy_kl(p0_mu, p0_sigma, p1_mu, p1_sigma, reduce=True):
 def bound_loss(mu):
 
     soft_bound = 1.1
-    mu_loss_high = torch.clamp_min(mu - soft_bound, 0.0)**2
-    mu_loss_low = torch.clamp_max(mu + soft_bound, 0.0)**2
+    mu_loss_high = torch.clamp_min(mu - soft_bound, 0.0)**2 ## returns max of x,0.0
+    mu_loss_low = torch.clamp_max(mu + soft_bound, 0.0)**2 ## returns min of x,0.0
     b_loss = (mu_loss_low + mu_loss_high).sum(axis=-1)
     b_loss = b_loss.mean()
 
